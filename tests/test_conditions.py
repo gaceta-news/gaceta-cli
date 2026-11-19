@@ -123,3 +123,29 @@ def test_public_build_never_calls_private_provider(env, monkeypatch):
     conditions.collect({"conditions": {"spy": {}}}, max_privacy="public",
                        now=datetime(2026, 11, 19, 6, 30).astimezone())
     assert called == []
+
+
+def test_icons_and_ear_render(monkeypatch):
+    raw = {"title": "Tiempo", "lead": "10 °C", "icon": "fog", "ear": "10°",
+           "ear_note": "niebla", "facts": [["Hoy", "22°", "rainy"], ["Viento", "calma"],
+                                           ["Mañana", "x", "<script>"]]}
+    box = conditions.clean_box(raw, name="w", label="household")
+    assert box["facts"][0] == ["Hoy", "22°", "rainy"] and box["ear"] == "10°"
+    ed = {"date": "2026-11-19", "built_at": "2026-11-19T06:30:00-05:00", "stories": {},
+          "reader": {"id": "r", "langs": "es"}, "conditions": [box]}
+    doc = render_html.render(ed, "household")
+    assert '<a class="ear" href="#cond-w"' in doc and 'id="cond-w"' in doc
+    assert doc.index('class="ear"') < doc.index("</header>")
+    assert doc.count('<svg class="wx"') == 3  # ear + lead + Hoy; unknown icon name renders nothing
+    assert "<script>" not in doc.split("<body>")[1].split("</header>")[0]
+    # above the page's level: neither ear nor box
+    pub = render_html.render(ed, "public")
+    assert 'class="ear"' not in pub and '<svg class="wx"' not in pub
+
+
+def test_every_icon_is_wellformed_svg():
+    import xml.etree.ElementTree as ET
+    from gaceta.render import icons
+    for name in icons.ICONS:
+        ET.fromstring(icons.svg(name))
+    assert icons.svg("nope") == ""

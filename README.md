@@ -177,6 +177,10 @@ weather = "my_package.weather:WeatherBox"
 privacy = "household"   # default "private"; boxes above the edition's level are never collected
 ```
 
+Optional: `"icon"` (a weather condition such as `sunny`, `rainy`, `fog`, drawn as a small inline
+pictogram; fact rows may carry one as a third element) and `"ear"` / `"ear_note"`, which put a short
+reading beside the nameplate, like the weather ear of a printed daily.
+
 A provider that fails or returns nothing is skipped; a number never blocks the paper.
 
 ## Commands

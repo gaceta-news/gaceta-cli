@@ -23,7 +23,13 @@ plain text; the renderer escapes everything and never trusts HTML):
      "lead": "10 °C · niebla",          # optional big line
      "facts": [["Lluvia 24 h", "0 mm"], ...],   # optional label/value rows
      "source": "estación propia",       # optional, printed with the stamp
-     "observed_at": "<ISO datetime>"}   # optional; stamp falls back to build time
+     "observed_at": "<ISO datetime>",   # optional; stamp falls back to build time
+     "icon": "fog",                     # optional pictogram (render/icons.py names)
+     "ear": "10°", "ear_note": "máx 22° · mín 13°"}  # optional nameplate ear
+
+Fact rows may carry a third element, an icon name for that row (e.g. a forecast
+day). The first box with an ``ear`` is also shown beside the nameplate, the way
+printed dailies carry the weather in the masthead's "ear".
 
 A provider that fails, returns None or returns junk is skipped: the edition is
 never blocked on a number, and a stale box is worse than no box.
@@ -74,12 +80,17 @@ def clean_box(raw, *, name: str, label: str) -> dict | None:
         box["lead"] = lead
     facts = []
     for row in raw.get("facts") or []:
-        if isinstance(row, (list, tuple)) and len(row) == 2:
+        if isinstance(row, (list, tuple)) and len(row) in (2, 3):
             k, v = _text(row[0], 40), _text(row[1], 60)
             if k and v:
-                facts.append([k, v])
+                icon = _text(row[2], 24) if len(row) == 3 else ""
+                facts.append([k, v, icon] if icon else [k, v])
     if facts:
         box["facts"] = facts[:MAX_FACTS]
+    for key, limit in (("icon", 24), ("ear", 12), ("ear_note", 40)):
+        value = _text(raw.get(key), limit)
+        if value:
+            box[key] = value
     source = _text(raw.get("source"), 60)
     if source:
         box["source"] = source

@@ -16,6 +16,7 @@ from datetime import date, datetime
 from urllib.parse import urlsplit
 
 from .. import i18n, privacy
+from . import icons
 from ..media import YOUTUBE_ID_RE
 
 STATUS_KEYS = {"developing": "status.developing", "corrected": "status.corrected"}
@@ -30,7 +31,7 @@ def _t(key: str, n: int | None = None, **kw) -> str:
 _LOCAL_MEDIA_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 READER_LINK_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
-_CSS = """
+_CSS = icons.CSS + """
 :root {
   color-scheme: light dark;
   --bg: #fbf9f3;
@@ -452,6 +453,35 @@ body { padding-bottom: 4rem; }
 .cond-facts dt { color: var(--muted); white-space: nowrap; }
 .cond-facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
 @media (min-width: 30rem) { .cond-facts dd { white-space: nowrap; } }
+.cond-lead .wx { width: 1.15em; height: 1.15em; margin-right: 0.3rem; vertical-align: -0.2em; }
+.cond-facts dd .wx { margin-right: 0.3rem; font-size: 1.15em; vertical-align: -0.22em; }
+.nameplate { position: relative; }
+.ear {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.25rem 0 0.25rem 0.7rem;
+  border-left: 1px solid var(--rule);
+  color: var(--ink);
+  text-align: left;
+  text-decoration: none;
+  line-height: 1.1;
+}
+.ear .wx { font-size: 2.3rem; }
+.ear-temp { display: block; font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  font-size: 1.5rem; font-weight: 700; }
+.ear-note { display: block; color: var(--muted); font-size: 0.7rem; letter-spacing: 0.02em; }
+@media (max-width: 52rem) {
+  .ear { position: static; transform: none; justify-content: center; border: 0;
+    padding: 0.35rem 0 0; }
+  .ear .wx { font-size: 1.6rem; }
+  .ear-temp { display: inline; font-size: 1.1rem; }
+  .ear-note { display: inline; margin-left: 0.35rem; }
+}
 .cond-stamp { margin: 0.45rem 0 0; color: var(--muted); font-size: 0.72rem; letter-spacing: 0.03em; }
 .discovery .src-entry { padding-top: .9rem; border-top: 1px solid var(--rule); }
 .discovery .src-entry + .src-entry { margin-top: .9rem; }
@@ -997,24 +1027,47 @@ def _render_discovery(edition: dict, stories: dict) -> str:
     return "\n".join(parts)
 
 
+def _cond_anchor(box: dict) -> str:
+    return "cond-" + (re.sub(r"[^a-z0-9_-]", "", str(box.get("id") or "").lower()) or "box")
+
+
+def _visible_conditions(edition: dict, max_level: str) -> list[dict]:
+    return [box for box in edition.get("conditions") or []
+            if isinstance(box, dict) and box.get("title")
+            and privacy.allowed(box.get("privacy"), max_level)]
+
+
+def _render_ear(edition: dict, max_level: str) -> str:
+    """The nameplate's weather ear: the first visible box that offers one."""
+    for box in _visible_conditions(edition, max_level):
+        ear = str(box.get("ear") or "").strip()
+        if not ear:
+            continue
+        note = str(box.get("ear_note") or "").strip()
+        note_html = f'<span class="ear-note">{_esc(note)}</span>' if note else ""
+        return (f'<a class="ear" href="#{_cond_anchor(box)}" title="{_esc(box["title"])}">'
+                f'{icons.svg(box.get("icon"))}<span><span class="ear-temp">{_esc(ear)}</span>'
+                f"{note_html}</span></a>")
+    return ""
+
+
 def _render_conditions(edition: dict, max_level: str) -> str:
     """Condiciones boxes (conditions.py): snapshot numbers, stamped with the
     capture time and the source, never live. Boxes above max_level are dropped
     silently (fail closed: unknown privacy counts as private)."""
     boxes = []
-    for box in edition.get("conditions") or []:
-        if not isinstance(box, dict) or not box.get("title"):
-            continue
-        if not privacy.allowed(box.get("privacy"), max_level):
-            continue
-        parts = ['<div class="cond-box">', f'<h2>{_esc(box["title"])}</h2>']
+    for box in _visible_conditions(edition, max_level):
+        anchor = _cond_anchor(box)
+        parts = [f'<div class="cond-box" id="{anchor}">', f'<h2>{_esc(box["title"])}</h2>']
         if box.get("lead"):
-            parts.append(f'<p class="cond-lead">{_esc(box["lead"])}</p>')
+            parts.append(f'<p class="cond-lead">{icons.svg(box.get("icon"))}{_esc(box["lead"])}</p>')
         facts = [row for row in box.get("facts") or []
-                 if isinstance(row, (list, tuple)) and len(row) == 2]
+                 if isinstance(row, (list, tuple)) and len(row) in (2, 3)]
         if facts:
             parts.append('<dl class="cond-facts">')
-            parts.extend(f"<div><dt>{_esc(k)}</dt><dd>{_esc(v)}</dd></div>" for k, v in facts)
+            parts.extend(f"<div><dt>{_esc(row[0])}</dt><dd>"
+                         f"{icons.svg(row[2]) if len(row) == 3 else ''}{_esc(row[1])}</dd></div>"
+                         for row in facts)
             parts.append("</dl>")
         hhmm = _hhmm(box.get("observed_at")) or _hhmm(edition.get("built_at"))
         stamp = [_t("conditions.stamp", time=hhmm) if hhmm else _t("conditions.not_live")]
@@ -1120,13 +1173,16 @@ def _render(edition: dict, max_level: str, media_prefix: str) -> str:
         '<div class="wrap">',
         '<header class="masthead">',
     ]
+    ear = _render_ear(edition, max_level)
+    nameplate = (f'<div class="nameplate"><h1>{_esc(paper)}</h1>{ear}</div>' if ear
+                 else f"<h1>{_esc(paper)}</h1>")
     if folio:
         # folio row above the nameplate, dateline row below it (roadmap 11c)
         parts.append(_folio_row(folio, edition))
-        parts.append(f"<h1>{_esc(paper)}</h1>")
+        parts.append(nameplate)
         parts.append(_dateline_row(folio, edition, reader_name))
     else:
-        parts.append(f"<h1>{_esc(paper)}</h1>")
+        parts.append(nameplate)
         dateline = []
         if reader_name:
             dateline.append(f'<span class="reader">{_esc(_t("dateline.for", name=reader_name))}</span>')
