@@ -1,0 +1,200 @@
+{
+  "version": 1,
+  "reader": {
+    "id": "ana",
+    "name": "Ana",
+    "langs": ["es"]
+  },
+  "date": "2026-11-17",
+  "built_at": "2026-11-17T07:30:00-05:00",
+  "max_privacy": "private",
+  "portada": [
+    "huerto-del-barrio",
+    "taller-abierto",
+    "mapa-de-bibliotecas"
+  ],
+  "sections": [
+    {
+      "id": "la-ciudad",
+      "title": "La ciudad",
+      "stories": [
+        "huerto-del-barrio",
+        "taller-abierto",
+        "mapa-de-bibliotecas"
+      ]
+    },
+    {
+      "id": "ciencia-cotidiana",
+      "title": "Ciencia cotidiana",
+      "stories": [
+        "luna-de-cosecha",
+        "correccion-tren-nocturno"
+      ]
+    },
+    {
+      "id": "lo-que-te-conte",
+      "title": "Lo que te conté",
+      "stories": [
+        "receta-familiar"
+      ]
+    }
+  ],
+  "stories": {
+    "huerto-del-barrio": {
+      "title": "El huerto del barrio abre los sábados",
+      "summary": "Un grupo de vecinos comparte herramientas, semillas y turnos de riego en la esquina de la plaza. La cosecha se reparte por sorteo entre quienes participan.",
+      "why_it_matters": null,
+      "status": "settled",
+      "confidence": 0.82,
+      "first_seen": "2026-11-15T09:10:00-05:00",
+      "last_seen": "2026-11-17T06:40:00-05:00",
+      "privacy": "public",
+      "sources": [
+        {
+          "title": "Acta de la asamblea vecinal",
+          "url": "https://example.org/acta-huerto",
+          "author": "Mesa del barrio",
+          "kind": "other",
+          "published": "2026-11-14",
+          "role": "origin"
+        },
+        {
+          "title": "Calendario de turnos",
+          "url": "https://example.org/turnos-huerto",
+          "author": "Comisión de riego",
+          "kind": "rss",
+          "published": "2026-11-16",
+          "role": "update"
+        }
+      ],
+      "corrections": []
+    },
+    "taller-abierto": {
+      "title": "<script>alert(1)</script>",
+      "summary": "El taller abre sus puertas dos tardes por semana para reparar bicicletas y pequeños electrodomésticos. No hace falta reservar.",
+      "why_it_matters": null,
+      "status": "developing",
+      "confidence": 0.55,
+      "first_seen": "2026-11-16T10:00:00-05:00",
+      "last_seen": "2026-11-17T07:05:00-05:00",
+      "privacy": "public",
+      "sources": [
+        {
+          "title": "Consulta ciudadana",
+          "url": "javascript:alert(1)",
+          "author": "Oficina de atención",
+          "kind": "other",
+          "published": "2026-11-17",
+          "role": "origin"
+        },
+        {
+          "title": "Horarios del taller",
+          "url": "https://example.org/taller-horarios",
+          "author": "Equipo del taller",
+          "kind": "rss",
+          "published": "2026-11-16",
+          "role": "update"
+        }
+      ],
+      "corrections": []
+    },
+    "mapa-de-bibliotecas": {
+      "title": "Un mapa para encontrar bibliotecas abiertas",
+      "summary": "La lista reúne horarios, servicios y rincones de lectura de doce bibliotecas. También señala cuáles tienen salas tranquilas para trabajar.",
+      "why_it_matters": null,
+      "status": "settled",
+      "confidence": 0.9,
+      "first_seen": "2026-11-12T08:20:00-05:00",
+      "last_seen": "2026-11-16T18:30:00-05:00",
+      "privacy": "public",
+      "sources": [
+        {
+          "title": "Directorio de bibliotecas",
+          "url": "https://example.org/mapa-bibliotecas",
+          "author": "Red de lectura",
+          "kind": "release",
+          "published": "2026-11-12",
+          "role": "origin"
+        }
+      ],
+      "corrections": []
+    },
+    "luna-de-cosecha": {
+      "title": "La luna de cosecha llegó antes este año",
+      "summary": "El calendario astronómico local registró el fenómeno una semana antes de lo habitual. El observatorio del parque abrirá una noche de observación.",
+      "why_it_matters": null,
+      "status": "developing",
+      "confidence": 0.64,
+      "first_seen": "2026-11-16T19:15:00-05:00",
+      "last_seen": "2026-11-17T06:55:00-05:00",
+      "privacy": "public",
+      "sources": [
+        {
+          "title": "Boletín del observatorio",
+          "url": "https://example.org/observatorio-luna",
+          "author": "Observatorio del parque",
+          "kind": "rss",
+          "published": "2026-11-16",
+          "role": "origin"
+        },
+        {
+          "title": "Guía para observar la luna",
+          "url": "https://example.org/guia-luna",
+          "author": "Taller de astronomía",
+          "kind": "other",
+          "published": "2026-11-15",
+          "role": "update"
+        }
+      ],
+      "corrections": []
+    },
+    "correccion-tren-nocturno": {
+      "title": "Corrección: el horario del tren nocturno",
+      "summary": "La nota anterior daba una hora de salida que no coincide con el tablero de la estación. El último servicio sale más temprano de lo que dijimos.",
+      "why_it_matters": null,
+      "status": "corrected",
+      "confidence": 0.78,
+      "first_seen": "2026-11-14T21:00:00-05:00",
+      "last_seen": "2026-11-17T08:10:00-05:00",
+      "privacy": "public",
+      "sources": [
+        {
+          "title": "Tablero de salidas de la estación",
+          "url": "https://example.org/tren-horarios",
+          "author": "Estación central",
+          "kind": "other",
+          "published": "2026-11-17",
+          "role": "correction"
+        }
+      ],
+      "corrections": [
+        {
+          "said": "El último tren salía a las 23:40.",
+          "now": "El último tren sale a las 23:10.",
+          "at": "2026-11-17T08:00:00-05:00"
+        }
+      ]
+    },
+    "receta-familiar": {
+      "title": "La receta de la abuela",
+      "summary": "Una mezcla sencilla de harina, canela y membrillo que se prepara en una sola olla. La medida exacta se guarda escrita a mano.",
+      "why_it_matters": "Es un recuerdo familiar y prefiero que no circule fuera de casa.",
+      "status": "settled",
+      "confidence": 0.95,
+      "first_seen": "2026-11-10T17:00:00-05:00",
+      "last_seen": "2026-11-15T20:20:00-05:00",
+      "privacy": "private",
+      "sources": [
+        {
+          "title": "Cuaderno de cocina",
+          "url": "https://example.org/cuaderno-familiar",
+          "author": "Familia",
+          "kind": "other",
+          "published": "2026-11-10",
+          "role": "origin"
+        }
+      ],
+      "corrections": []
+    }
+  }
+}

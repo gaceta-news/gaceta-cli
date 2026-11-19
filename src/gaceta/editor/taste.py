@@ -1,0 +1,215 @@
+"""Taste steering: the edition OWNER's reactions shape that owner's next editions.
+
+Only reactions whose by_name is the owner's name (case-insensitive) or NULL
+(legacy rows) count. Everyone else's reactions are stored (schema v5 by_name)
+but never steer this reader — they will steer their own editions later.
+
+Signals (docs/EDITION.md):
+- story-level: more +2.0, less −2.5, hide → excluded entirely. Implicit
+  'open' (a link in the article was opened) carries weight +0.6 into the
+  similarity transfer only — reason 'Abriste algo parecido (+x)' — and never
+  resurfaces the opened story itself. Legacy kinds
+  from old rows are still accepted: up +2.0, down −3.0 (the served bar now
+  only sends more/less, but history keeps steering).
+- similarity transfer: candidate centroid vs each reacted story's centroid
+  (embeddings model from reader [embed] config); each reacted story contributes
+  weight * max(0, sim − 0.6) / 0.4, total capped at ±2.0
+- author affinity: per author, net = (#up+#more) − (#down+#less) over reacted
+  stories carrying that author; negative → −0.5 per net down (cap −1.5),
+  positive → +0.3 per net up (cap +1.0)
+
+Every non-zero adjustment produces one short Spanish reason (score_reasons).
+"""
+from __future__ import annotations
+
+import sqlite3
+from dataclasses import dataclass, field
+
+import numpy as np
+
+from ..providers.embed import model_name
+
+KIND_WEIGHTS = {"up": 2.0, "more": 2.0, "down": -3.0, "less": -2.5, "open": 0.6,
+                "agent": 2.5, "save": 3.0}
+KIND_LABELS = {"up": "👍", "more": "'Más así'", "down": "👎", "less": "'Menos así'",
+               "open": "'abriste'", "agent": "'mandar a tu agente'",
+               "save": "'Guardar'"}
+SIM_FLOOR, SIM_SPAN, SIM_CAP = 0.6, 0.4, 2.0
+AUTHOR_NEG_STEP, AUTHOR_NEG_CAP = 0.5, 1.5
+AUTHOR_POS_STEP, AUTHOR_POS_CAP = 0.3, 1.0
+
+
+@dataclass
+class Adjustment:
+    hidden: set[str] = field(default_factory=set)
+    delta: dict[str, float] = field(default_factory=dict)
+    reasons: dict[str, list[str]] = field(default_factory=dict)
+
+    def add(self, story_id: str, amount: float, reason: str) -> None:
+        self.delta[story_id] = self.delta.get(story_id, 0.0) + amount
+        self.reasons.setdefault(story_id, []).append(reason)
+
+
+def _owner_reactions(conn: sqlite3.Connection, reader_id: str, owner_name: str) -> list[sqlite3.Row]:
+    return conn.execute(
+        "SELECT story_id, kind FROM reactions "
+        "WHERE reader_id = ? AND story_id IS NOT NULL "
+        "AND (by_name IS NULL OR lower(by_name) = lower(?)) "
+        # handing a story to your agent (schema v8) is the strongest "this matters"
+        "UNION ALL SELECT story_id, 'agent' AS kind FROM agent_sends "
+        "WHERE reader_id = ? AND lower(by_name) = lower(?) "
+        # the owner saving a story (schema v9, local) is the strongest positive
+        "UNION ALL SELECT story_id, 'save' AS kind FROM saves "
+        "WHERE reader_id = ? AND story_id IS NOT NULL AND removed_at IS NULL "
+        "AND origin = 'gaceta' AND lower(by_name) = lower(?)",
+        (reader_id, owner_name, reader_id, owner_name, reader_id, owner_name),
+    ).fetchall()
+
+
+def _story_authors(conn: sqlite3.Connection, story_ids) -> dict[str, set[str]]:
+    ids = list(story_ids)
+    out: dict[str, set[str]] = {}
+    if not ids:
+        return out
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        rows = conn.execute(
+            "SELECT si.story_id, i.author FROM story_items si "
+            "JOIN items i ON i.id = si.item_id "
+            f"WHERE si.story_id IN ({','.join('?' * len(chunk))}) AND i.author IS NOT NULL",
+            chunk,
+        )
+        for r in rows:
+            a = str(r["author"]).strip()
+            if a:
+                out.setdefault(r["story_id"], set()).add(a)
+    return out
+
+
+def _centroids(conn: sqlite3.Connection, model: str, story_ids) -> dict[str, np.ndarray]:
+    """Mean of member-item embeddings per story (cosine space)."""
+    ids = list(story_ids)
+    vecs: dict[str, list[np.ndarray]] = {}
+    if not ids:
+        return {}
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        rows = conn.execute(
+            "SELECT si.story_id, e.vec FROM story_items si "
+            "JOIN embeddings e ON e.item_id = si.item_id AND e.model = ? "
+            f"WHERE si.story_id IN ({','.join('?' * len(chunk))})",
+            [model, *chunk],
+        )
+        for r in rows:
+            v = np.frombuffer(r["vec"], dtype=np.float32)
+            if v.size:
+                vecs.setdefault(r["story_id"], []).append(v)
+    out: dict[str, np.ndarray] = {}
+    for sid, vs in vecs.items():
+        c = np.mean(np.stack(vs), axis=0)
+        n = float(np.linalg.norm(c))
+        out[sid] = c / n if n > 0 else c
+    return out
+
+
+def _cos(a: np.ndarray, b: np.ndarray) -> float:
+    denom = float(np.linalg.norm(a)) * float(np.linalg.norm(b))
+    return float(np.dot(a, b)) / (denom + 1e-12)
+
+
+def adjustments(conn: sqlite3.Connection, reader_id: str, cfg: dict,
+                items_by_story: dict[str, list] | None = None) -> Adjustment:
+    """Owner-reaction adjustments for the reader's candidate stories.
+
+    items_by_story maps story_id → member item rows (as built in edition.build);
+    when omitted, similarity/author signals are skipped (story-level still applies).
+    """
+    adj = Adjustment()
+    owner_name = str(cfg.get("name") or reader_id)
+    reactions = _owner_reactions(conn, reader_id, owner_name)
+    if not reactions:
+        return adj
+
+    for r in reactions:
+        if r["kind"] == "hide":
+            adj.hidden.add(r["story_id"])
+
+    # --- story level
+    per_story: dict[str, dict[str, float]] = {}
+    for r in reactions:
+        w = KIND_WEIGHTS.get(r["kind"])
+        if w is None:
+            continue
+        kinds = per_story.setdefault(r["story_id"], {})
+        kinds[r["kind"]] = kinds.get(r["kind"], 0.0) + w
+    for sid, kinds in per_story.items():
+        for kind, w in sorted(kinds.items(), key=lambda kv: -abs(kv[1])):
+            if kind == "open":
+                continue  # 'open' steers similarity only, never the story itself
+            n = abs(w) / KIND_WEIGHTS[kind]
+            word = "veces" if n > 1.5 else "vez"
+            adj.add(sid, w, f"Le diste {KIND_LABELS[kind]} ({n:.0f} {word}, {w:+.1f})")
+
+    # --- author affinity (over reacted stories' authors; applied to candidates)
+    authors_by_story = _story_authors(conn, [r["story_id"] for r in reactions])
+    author_net: dict[str, float] = {}
+    for r in reactions:
+        w = KIND_WEIGHTS.get(r["kind"])
+        if w is None or r["kind"] == "open":
+            continue
+        for a in authors_by_story.get(r["story_id"], ()):  # reactions can repeat across days
+            author_net[a] = author_net.get(a, 0.0) + (1.0 if w > 0 else -1.0)
+    author_delta: dict[str, tuple[float, str]] = {}
+    for a, net in author_net.items():
+        if net < 0:
+            d = max(AUTHOR_NEG_STEP * net, -AUTHOR_NEG_CAP)  # net negative → −0.5 each, cap −1.5
+            author_delta[a] = (d, f"Un autor que no te convence ({d:+.1f})")
+        elif net > 0:
+            d = min(AUTHOR_POS_STEP * net, AUTHOR_POS_CAP)
+            author_delta[a] = (d, f"Un autor que suele gustarte ({d:+.1f})")
+    if author_delta and items_by_story:
+        cand_authors = _story_authors(conn, list(items_by_story.keys()))
+        for sid, authors in cand_authors.items():
+            seen: set[str] = set()
+            for a in authors:
+                if a in author_delta and a not in seen:
+                    seen.add(a)
+                    d, reason = author_delta[a]
+                    adj.add(sid, d, reason)
+
+    # --- similarity transfer
+    if items_by_story:
+        try:
+            model = model_name(cfg)
+        except ValueError:
+            model = ""
+        if model:
+            reacted_ids = [sid for sid in per_story if sid not in adj.hidden]
+            candidates = [sid for sid in items_by_story if sid not in per_story]
+            centroids = _centroids(conn, model, set(reacted_ids) | set(candidates))
+            for cand in candidates:
+                c = centroids.get(cand)
+                if c is None:
+                    continue
+                transfer = 0.0
+                open_part = 0.0
+                for rsid in reacted_ids:
+                    rc = centroids.get(rsid)
+                    if rc is None:
+                        continue
+                    sim = _cos(c, rc)
+                    if sim > SIM_FLOOR:
+                        transfer += sum(per_story[rsid].values()) * (sim - SIM_FLOOR) / SIM_SPAN
+                        ow = per_story[rsid].get("open", 0.0)
+                        if ow > 0:
+                            open_part += ow * (sim - SIM_FLOOR) / SIM_SPAN
+                transfer = max(-SIM_CAP, min(SIM_CAP, transfer))
+                if abs(transfer) >= 0.05:
+                    if open_part >= 0.05 and abs(transfer - open_part) < 0.05:
+                        label = "Abriste algo parecido"
+                    elif transfer > 0:
+                        label = "Parecido a algo que te gustó"
+                    else:
+                        label = "Le diste 👎 a algo parecido"
+                    adj.add(cand, transfer, f"{label} ({transfer:+.1f})")
+    return adj

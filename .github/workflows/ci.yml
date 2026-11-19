@@ -1,0 +1,25 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ["3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: uv sync
+      - run: uv run --with pytest pytest -q -p no:cacheprovider
+      - name: offline quickstart
+        run: |
+          export GACETA_DATA=$RUNNER_TEMP/g
+          g() { uv run -q gaceta "$@"; }
+          g init && g ingest rss --reader main && g embed --reader main && g cluster --reader main
+          g write --reader main --days 14 && g edition --reader main && g render --reader main
+          test -s $GACETA_DATA/site/main/index.html

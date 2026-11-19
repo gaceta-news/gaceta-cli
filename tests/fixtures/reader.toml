@@ -1,0 +1,17 @@
+id = "testreader"
+name = "Test Reader"
+langs = "es,en"
+
+[privacy]
+pinned = ["zorblax", "qq-secret-farm"]
+household = ["glimmerhouse"]
+
+[sources.sqlite]
+path = ""   # tests set this
+
+[embed]
+provider = "fake"
+
+[cluster]
+threshold = 0.70
+window_days = 21

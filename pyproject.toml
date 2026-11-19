@@ -1,0 +1,40 @@
+[project]
+name = "gaceta"
+version = "0.1.0"
+description = "A personal newspaper edited for one reader: stories, not articles; sources on every claim."
+readme = "README.md"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+keywords = ["news", "rss", "newspaper", "llm", "agents", "youtube", "nostr", "cli"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Programming Language :: Python :: 3",
+    "Topic :: Internet :: WWW/HTTP :: Dynamic Content :: News/Diary",
+]
+requires-python = ">=3.12"
+dependencies = [
+    "numpy",
+    "websockets>=17.4",
+]
+
+[project.urls]
+Homepage = "https://github.com/gaceta-news/gaceta-cli"
+Issues = "https://github.com/gaceta-news/gaceta-cli/issues"
+
+[project.scripts]
+gaceta = "gaceta.cli:main"
+
+[project.entry-points."gaceta.sources"]
+sqlite = "gaceta.sources.sqlite:SqliteAdapter"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gaceta"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "tests/fixtures"]
