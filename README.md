@@ -32,7 +32,8 @@ feeds ──▶ ingest ──▶ embed ──▶ cluster ──▶ write ──�
   `public`). Renderers take a maximum level, so a public build physically can't emit private rows,
   and external models only ever see public source text unless you allow it.
 - **Cheap to run.** Clustering is local embeddings. The LLM only rewrites stories that changed, and
-  every run has a hard `--max-llm-calls` budget.
+  `write` takes hard budgets: `--max-llm-calls` for write-ups and `--max-change-calls` for the
+  "what changed since you saw it" notes.
 - **Several readers, one install.** Readers share fetched content; editions, reactions and taste
   stay per reader.
 
@@ -67,8 +68,16 @@ Fake models prove the plumbing but write nothing useful. For a real paper, see b
 
 ## A real paper, fully local (no API keys)
 
-With [Ollama](https://ollama.com) running (`ollama pull bge-m3 qwen2.5:3b`), edit
-`readers/main/reader.toml`:
+With [Ollama](https://ollama.com) running, pull an embedding model and a chat model:
+
+```bash
+ollama pull bge-m3
+ollama pull qwen2.5:3b
+```
+
+Start from a clean data directory so the demo stories don't mix in
+(`export GACETA_DATA=~/my-paper && gaceta init`). Then, in `readers/main/reader.toml`, **replace** the
+sample `[[sources.rss.feeds]]` block and the `[embed]` / `[llm.editor]` tables with:
 
 ```toml
 [[sources.rss.feeds]]
@@ -108,7 +117,7 @@ never in code.
 
 | Section | What |
 |---|---|
-| `id`, `name`, `langs` | reader identity; `langs = "es,en"` sets the write-up language(s) |
+| `id`, `name`, `langs` | reader identity; `langs = "es,en"` asks for write-ups in those languages |
 | `[[sources.rss.feeds]]` | RSS/Atom/YouTube feeds (`url`, or `file` for a local feed; `kind`) |
 | `[sources.rss.transcripts]` | how YouTube transcripts are fetched; videos without one are skipped |
 | `[sources.nostr_wot]` | web-of-trust-ranked Nostr notes (readiness-gated) |
@@ -141,7 +150,7 @@ reader configures `[sources.mysource]`. Adapters must be read-only against their
 | `init` | create the data dir, db and an example reader |
 | `ingest <adapter\|all>` | pull new items |
 | `embed`, `cluster` | embed items locally and group them into stories |
-| `write` | LLM write-ups for stories that changed (`--max-llm-calls` caps spend) |
+| `write` | LLM write-ups for stories that changed (`--max-llm-calls`, `--max-change-calls` cap spend) |
 | `media` | cache thumbnails for recent stories |
 | `edition`, `render` | build an immutable edition snapshot and render it to HTML |
 | `serve` | localhost server with reactions (put a reverse proxy or a tailnet in front) |
@@ -155,8 +164,11 @@ Run `gaceta <command> --help` for options.
 
 Early (v0.1) and used every day by its authors. Known gaps:
 
-- The paper's interface text is Spanish-first today (*Más así / Menos así / Visto*). Write-ups
-  already follow `langs`; full interface i18n is next.
+- The paper's interface text is Spanish-first today (*Más así / Menos así / Visto*); full interface
+  i18n is next. Write-ups are requested in `langs`, but small local models sometimes answer in the
+  source's language instead.
+- Small local models also overstate claims now and then. Every card links its sources: check strong
+  claims there, or use a bigger model.
 - Corrections (flagging when a story contradicts what it said before) are designed but not built.
 - An agent interface (a skill and an MCP server, so your agent can judge relevance with its own
   memory) is on the roadmap.
