@@ -24,7 +24,7 @@ from importlib import resources
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import config, db
+from . import config, db, i18n
 
 ALLOWED_HOSTS = ("127.0.0.1", "::1", "localhost")
 DEFAULT_PORT = 8711
@@ -66,9 +66,11 @@ def validate_host(host: str) -> str:
 
 
 def inject_react(html: str) -> str:
-    """Add the reaction script before </body> (once) and rebase media src to /media/."""
+    """Add the page strings (in the document's <html lang>) and the reaction script
+    before </body> (once) and rebase media src to /media/."""
     if "/static/react.js" not in html:
-        html = html.replace("</body>", f"{REACT_TAG}</body>", 1)
+        l10n = i18n.js_script(i18n.html_lang(html))
+        html = html.replace("</body>", f"{l10n}{REACT_TAG}</body>", 1)
     return html.replace('src="../media/', 'src="/media/')
 
 
@@ -79,15 +81,20 @@ def _day_bounds(ts: float | None = None) -> tuple[int, int]:
     return start, start + 86399
 
 
+def _reader_cfg(reader: str, data_dir) -> dict:
+    try:
+        return config.load_reader(reader, data_dir)
+    except Exception:  # missing/broken reader config never breaks a page
+        return {}
+
+
 def _agent_label(reader: str, data_dir) -> str | None:
     """Display name of the reader's agent when one is configured ([agent] name/command)."""
-    try:
-        a = config.load_reader(reader, data_dir).get("agent") or {}
-    except Exception:  # missing/broken reader config never breaks /api/state
-        return None
+    cfg = _reader_cfg(reader, data_dir)
+    a = cfg.get("agent") or {}
     if not a.get("command"):
         return None
-    return str(a.get("name") or "tu agente")[:40]
+    return str(a.get("name") or i18n.t(i18n.reader_lang(cfg), "agent.default"))[:40]
 
 
 def deliver_to_agent(cfg: dict, payload: dict) -> tuple[bool, str | None]:
@@ -230,7 +237,7 @@ class Handler(BaseHTTPRequestHandler):
             f'<li><a href="/r/{r}/">{r}</a></li>' for r in readers
         )
         body = (
-            "<!DOCTYPE html><html lang=\"es\"><head><meta charset=\"utf-8\">"
+            "<!DOCTYPE html><html><head><meta charset=\"utf-8\">"
             "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">"
             "<title>La Gaceta</title></head><body><main><h1>La Gaceta</h1>"
             f"<ul>{lis}</ul></main></body></html>"
@@ -713,7 +720,9 @@ class Handler(BaseHTTPRequestHandler):
                     })
         finally:
             conn.close()
-        doc = render_guardadas(reader, by, out)
+        cfg = _reader_cfg(reader, self.state.data_dir)
+        doc = render_guardadas(reader, by, out, lang=i18n.reader_lang(cfg) if cfg else "es",
+                               masthead=str(cfg.get("masthead") or ""))
         self._send(200, doc.encode(), "text/html; charset=utf-8", cache="no-cache")
 
     # ------------------------------------------------------------ GET /api/*

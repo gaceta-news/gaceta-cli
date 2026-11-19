@@ -261,3 +261,50 @@ def test_config_fake_chat_writes_valid_cards():
         'Reply with JSON {"title", "summary", "why_it_matters", "confidence"}\nTITLE: Hello\nBODY: World'}])
     card = _json.loads(out)
     assert card["title"] == "Hello" and card["summary"] == "World" and 0 <= card["confidence"] <= 1
+
+
+ES_SUMMARY = ("La empresa anunció que los paneles solares de los balcones resistieron el invierno "
+              "sin fallas graves y que publicará una guía para repararlos.")
+EN_SUMMARY = ("The company said the balcony solar panels survived the winter without serious "
+              "failures and that it will publish a guide to repair them.")
+
+
+class WrongLanguageFirst(FakeChat):
+    """Answers in English first; in Spanish when asked to fix the language."""
+
+    def complete(self, messages, **kw):
+        fix = "Rewrite the same card" in messages[-1]["content"]
+        self.prompts.append(messages[-1]["content"])
+        return json.dumps({"title": "Lámparas" if fix else "Lamps",
+                           "summary": ES_SUMMARY if fix else EN_SUMMARY,
+                           "why_it_matters": None, "confidence": 0.7}), {}
+
+
+def _one_story(env):
+    build_story(env, ("a1", "A one", "alpha beta gamma", "noted", "public", T0))
+
+
+def test_wrong_language_card_is_rewritten_once(env):
+    _one_story(env)
+    cfg = {**env.cfg, "langs": "es"}
+    chat = WrongLanguageFirst()
+    r = writeup.write_stories(env.conn, cfg["id"], cfg, chat=chat, now=NOW)
+    assert r["written"] == 1 and r["relanguaged"] == 1 and r["llm_calls"] == 2
+    s = env.conn.execute("SELECT title, summary FROM stories").fetchone()
+    assert s["title"] == "Lámparas" and s["summary"] == ES_SUMMARY
+
+
+def test_right_language_costs_no_extra_call(env):
+    _one_story(env)
+    cfg = {**env.cfg, "langs": "en"}
+    r = writeup.write_stories(env.conn, cfg["id"], cfg, chat=WrongLanguageFirst(), now=NOW)
+    assert r["written"] == 1 and r["relanguaged"] == 0 and r["llm_calls"] == 1
+
+
+def test_language_fix_respects_budget(env):
+    _one_story(env)
+    cfg = {**env.cfg, "langs": "es"}
+    r = writeup.write_stories(env.conn, cfg["id"], cfg, chat=WrongLanguageFirst(),
+                              now=NOW, max_llm_calls=1)
+    # no budget left for the fix: keep the (valid) card rather than nothing
+    assert r["llm_calls"] == 1 and r["written"] == 1 and r["relanguaged"] == 0

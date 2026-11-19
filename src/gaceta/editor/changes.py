@@ -20,7 +20,7 @@ import re
 import sqlite3
 import time
 
-from .. import privacy
+from .. import i18n, privacy
 from ..editor import prompts, quotes
 from ..providers import llm as llm_providers
 
@@ -46,7 +46,7 @@ _SYSTEM = (
 def changes_messages(prev_summary: str, cur_summary: str, new_items: list[dict], *,
                      langs: str) -> list[dict]:
     first = ([l.strip() for l in str(langs or "en").split(",") if l.strip()] or ["en"])[0].lower()
-    lang = prompts._LANG_NAMES.get(first, first)
+    lang = i18n.language_name(first)
     user = [
         f"Write what_changed in {lang}.",
         "PREVIOUS CARD (what the reader read):\n" + (prev_summary or "").strip(),

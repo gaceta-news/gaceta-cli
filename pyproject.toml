@@ -1,6 +1,6 @@
 [project]
 name = "gaceta"
-version = "0.1.0"
+version = "0.2.0"
 description = "A personal newspaper edited for one reader: stories, not articles; sources on every claim."
 readme = "README.md"
 license = "AGPL-3.0-only"

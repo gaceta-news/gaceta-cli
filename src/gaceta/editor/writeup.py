@@ -16,7 +16,7 @@ import sqlite3
 import time
 from pathlib import Path
 
-from .. import config, privacy
+from .. import config, i18n, privacy
 from ..editor import prompts, quotes
 from ..providers import llm as llm_providers
 
@@ -120,6 +120,38 @@ def write_stories(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
     served_models: set[str] = set()
     refused = 0
     unquoted = 0
+    relanguaged = 0
+    want_lang = (i18n.langs_list(langs) or ["en"])[0].lower()
+
+    def ask(messages: list[dict]):
+        """One cached completion → (out, usage), or None when the budget is spent."""
+        nonlocal calls, cache_hits, refused
+        text = prompts.messages_text(messages)
+        key = hashlib.sha256((chat.name + text).encode()).hexdigest()
+        row = conn.execute("SELECT output FROM llm_decisions WHERE key = ?", (key,)).fetchone()
+        if row is not None:
+            cache_hits += 1
+            return row[0] or "", {}
+        if calls >= max_llm_calls:
+            return None
+        try:
+            out, usage = chat.complete(messages, max_tokens=400, temperature=0.0)
+        except llm_providers.LLMRefused as e:
+            refused += 1
+            out, usage = "", {"refused": e.code, "detail": e.detail}
+        calls += 1
+        tokens["prompt"] += int(usage.get("prompt_tokens") or 0)
+        tokens["completion"] += int(usage.get("completion_tokens") or 0)
+        if usage.get("served_model"):
+            served_models.add(str(usage["served_model"]))
+        conn.execute(
+            "INSERT INTO llm_decisions (key, model, input_hash, output, usage, at) "
+            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET "
+            "output = excluded.output, usage = excluded.usage, at = excluded.at",
+            (key, chat.name, hashlib.sha256(text.encode()).hexdigest(),
+             out, json.dumps(usage), now),
+        )
+        return out, usage
 
     for cand in candidates:
         story_id = cand["id"]
@@ -131,37 +163,22 @@ def write_stories(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
         messages = prompts.writeup_messages(
             items, langs=langs, profile=profile, allow_private=chat.allow_private
         )
-        text = prompts.messages_text(messages)
-        key = hashlib.sha256((chat.name + text).encode()).hexdigest()
-        row = conn.execute(
-            "SELECT output FROM llm_decisions WHERE key = ?", (key,)
-        ).fetchone()
-        if row is not None:
-            cache_hits += 1
-            out, usage = row[0] or "", {}
-        else:
-            if calls >= max_llm_calls:
-                budget_exhausted = True
-                break
-            try:
-                out, usage = chat.complete(messages, max_tokens=400, temperature=0.0)
-            except llm_providers.LLMRefused as e:
-                refused += 1
-                out, usage = "", {"refused": e.code, "detail": e.detail}
-            calls += 1
-            tokens["prompt"] += int(usage.get("prompt_tokens") or 0)
-            tokens["completion"] += int(usage.get("completion_tokens") or 0)
-            if usage.get("served_model"):
-                served_models.add(str(usage["served_model"]))
-            conn.execute(
-                "INSERT INTO llm_decisions (key, model, input_hash, output, usage, at) "
-                "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET "
-                "output = excluded.output, usage = excluded.usage, at = excluded.at",
-                (key, chat.name, hashlib.sha256(text.encode()).hexdigest(),
-                 out, json.dumps(usage), now),
-            )
+        got = ask(messages)
+        if got is None:
+            budget_exhausted = True
+            break
+        out, usage = got
 
         card = prompts.parse_writeup(out)
+        wrong = card and i18n.mismatch(card["summary"], want_lang)
+        if wrong:
+            # small models answer in the source's language: ask once more, in budget
+            retry = ask(messages + [{"role": "assistant", "content": out},
+                                    prompts.language_fix_message(wrong, want_lang)])
+            fixed = prompts.parse_writeup(retry[0]) if retry else None
+            if fixed and not i18n.mismatch(fixed["summary"], want_lang):
+                card, usage = fixed, (retry[1] or usage)
+                relanguaged += 1
         if card is None:
             failed += 1  # invalid JSON → story stays unchanged, cached reply kept
             conn.commit()
@@ -205,6 +222,6 @@ def write_stories(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
         "llm_calls": calls, "llm_cache_hits": cache_hits,
         "llm_prompt_tokens": tokens["prompt"], "llm_completion_tokens": tokens["completion"],
         "budget_exhausted": budget_exhausted,
-        "refused": refused, "quotes_unquoted": unquoted,
+        "refused": refused, "quotes_unquoted": unquoted, "relanguaged": relanguaged,
         "model": chat.name, "served_models": sorted(served_models),
     }

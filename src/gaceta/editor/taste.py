@@ -27,13 +27,16 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from .. import i18n
 from ..providers.embed import model_name
 
 KIND_WEIGHTS = {"up": 2.0, "more": 2.0, "down": -3.0, "less": -2.5, "open": 0.6,
                 "agent": 2.5, "save": 3.0}
-KIND_LABELS = {"up": "👍", "more": "'Más así'", "down": "👎", "less": "'Menos así'",
-               "open": "'abriste'", "agent": "'mandar a tu agente'",
-               "save": "'Guardar'"}
+KIND_EMOJI = {"up": "👍", "down": "👎"}  # other kinds: taste.kind.<kind> in the catalog
+
+
+def kind_label(lang: str, kind: str) -> str:
+    return KIND_EMOJI.get(kind) or i18n.t(lang, f"taste.kind.{kind}")
 SIM_FLOOR, SIM_SPAN, SIM_CAP = 0.6, 0.4, 2.0
 AUTHOR_NEG_STEP, AUTHOR_NEG_CAP = 0.5, 1.5
 AUTHOR_POS_STEP, AUTHOR_POS_CAP = 0.3, 1.0
@@ -125,6 +128,7 @@ def adjustments(conn: sqlite3.Connection, reader_id: str, cfg: dict,
     when omitted, similarity/author signals are skipped (story-level still applies).
     """
     adj = Adjustment()
+    lang = i18n.reader_lang(cfg)
     owner_name = str(cfg.get("name") or reader_id)
     reactions = _owner_reactions(conn, reader_id, owner_name)
     if not reactions:
@@ -147,8 +151,9 @@ def adjustments(conn: sqlite3.Connection, reader_id: str, cfg: dict,
             if kind == "open":
                 continue  # 'open' steers similarity only, never the story itself
             n = abs(w) / KIND_WEIGHTS[kind]
-            word = "veces" if n > 1.5 else "vez"
-            adj.add(sid, w, f"Le diste {KIND_LABELS[kind]} ({n:.0f} {word}, {w:+.1f})")
+            word = i18n.t(lang, "taste.times", 2 if n > 1.5 else 1)
+            adj.add(sid, w, i18n.t(lang, "taste.gave", label=kind_label(lang, kind),
+                                   count=f"{n:.0f}", times=word, v=f"{w:+.1f}"))
 
     # --- author affinity (over reacted stories' authors; applied to candidates)
     authors_by_story = _story_authors(conn, [r["story_id"] for r in reactions])
@@ -163,10 +168,10 @@ def adjustments(conn: sqlite3.Connection, reader_id: str, cfg: dict,
     for a, net in author_net.items():
         if net < 0:
             d = max(AUTHOR_NEG_STEP * net, -AUTHOR_NEG_CAP)  # net negative → −0.5 each, cap −1.5
-            author_delta[a] = (d, f"Un autor que no te convence ({d:+.1f})")
+            author_delta[a] = (d, i18n.t(lang, "taste.author_neg", v=f"{d:+.1f}"))
         elif net > 0:
             d = min(AUTHOR_POS_STEP * net, AUTHOR_POS_CAP)
-            author_delta[a] = (d, f"Un autor que suele gustarte ({d:+.1f})")
+            author_delta[a] = (d, i18n.t(lang, "taste.author_pos", v=f"{d:+.1f}"))
     if author_delta and items_by_story:
         cand_authors = _story_authors(conn, list(items_by_story.keys()))
         for sid, authors in cand_authors.items():
@@ -206,10 +211,10 @@ def adjustments(conn: sqlite3.Connection, reader_id: str, cfg: dict,
                 transfer = max(-SIM_CAP, min(SIM_CAP, transfer))
                 if abs(transfer) >= 0.05:
                     if open_part >= 0.05 and abs(transfer - open_part) < 0.05:
-                        label = "Abriste algo parecido"
+                        label = i18n.t(lang, "taste.sim_open")
                     elif transfer > 0:
-                        label = "Parecido a algo que te gustó"
+                        label = i18n.t(lang, "taste.sim_pos")
                     else:
-                        label = "Le diste 👎 a algo parecido"
+                        label = i18n.t(lang, "taste.sim_neg")
                     adj.add(cand, transfer, f"{label} ({transfer:+.1f})")
     return adj

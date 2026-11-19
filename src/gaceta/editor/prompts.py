@@ -10,6 +10,8 @@ import math
 import re
 import time
 
+from .. import i18n
+
 BODY_CHARS = 600
 
 # Roadmap 11b (lesson from The Nostr Observer): item text is written by other
@@ -113,7 +115,13 @@ _WRITEUP_SYSTEM = (
     "lower confidence."
 ) + QUOTE_RULE + UNTRUSTED_RULE
 
-_LANG_NAMES = {"es": "Spanish", "en": "English"}
+def language_fix_message(got: str, want: str) -> dict:
+    """Follow-up turn when a card came back in the wrong language."""
+    return {"role": "user", "content": (
+        f"That card is written in {i18n.language_name(got)}, but the reader reads "
+        f"{i18n.language_name(want)}. Rewrite the same card (same facts, same JSON keys) "
+        f"with title, summary and why_it_matters in {i18n.language_name(want)}. Return JSON only."
+    )}
 
 
 def writeup_messages(items: list[dict], *, langs: str, profile: str | None,
@@ -123,7 +131,7 @@ def writeup_messages(items: list[dict], *, langs: str, profile: str | None,
     allow_private=True. Nothing else about the reader ever enters the prompt."""
     langs_list = [l.strip() for l in str(langs or "en").split(",") if l.strip()] or ["en"]
     first = langs_list[0].lower()
-    lang_line = f"Write the title and summary in {_LANG_NAMES.get(first, first)}."
+    lang_line = f"Write the title and summary in {i18n.language_name(first)}."
 
     user: list[str] = []
     if allow_private and profile and profile.strip():

@@ -70,7 +70,9 @@ EXAMPLE_READER_TOML = """# gaceta reader configuration. Everything personal live
 
 id = "{reader}"
 name = "{name}"
-langs = "en"          # comma list, e.g. "es,en"
+langs = "en"          # write-up languages, comma list, e.g. "es,en" (first = main)
+# ui_lang = "en"      # paper interface: en, es, pt, fr, de, it (default: first of langs)
+# masthead = "La Gaceta"  # the paper's name on the masthead
 
 [privacy]
 # Words that must never appear outside the given privacy level (canaries).
@@ -367,7 +369,8 @@ def cmd_write(args) -> int:
         f"write reader={args.reader} days={result['days']}: "
         f"{result['window_stories']} stories to write, {result['written']} written, "
         f"{result['failed']} failed (invalid JSON), {result['pending']} pending"
-        f"{' (budget exhausted)' if result['budget_exhausted'] else ''}; "
+        f"{' (budget exhausted)' if result['budget_exhausted'] else ''}"
+        f"{f', {n} rewritten in the reader language' if (n := result.get('relanguaged')) else ''}; "
         f"calls={result['llm_calls']} cache={result['llm_cache_hits']} "
         f"tokens={result['llm_prompt_tokens']}+{result['llm_completion_tokens']}; "
         f"served={served}"

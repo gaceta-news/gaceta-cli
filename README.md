@@ -117,7 +117,8 @@ never in code.
 
 | Section | What |
 |---|---|
-| `id`, `name`, `langs` | reader identity; `langs = "es,en"` asks for write-ups in those languages |
+| `id`, `name`, `langs` | reader identity; `langs = "es,en"`: write-ups in the first language |
+| `ui_lang`, `masthead` | interface language (default: first of `langs`) and the paper's name |
 | `[[sources.rss.feeds]]` | RSS/Atom/YouTube feeds (`url`, or `file` for a local feed; `kind`) |
 | `[sources.rss.transcripts]` | how YouTube transcripts are fetched; videos without one are skipped |
 | `[sources.nostr_wot]` | web-of-trust-ranked Nostr notes (readiness-gated) |
@@ -125,6 +126,21 @@ never in code.
 | `[cluster]` | `threshold` (cosine "same story") and `window_days` |
 | `[[sections]]` | named sections matched by source kind, source-id prefix or keywords |
 | `[privacy]` | canary terms pinned to `private` / `household` |
+
+## Languages
+
+The whole paper follows the reader: interface, dates, ranking explanations and write-ups.
+Interface languages shipped: English, Spanish, Portuguese, French, German and Italian
+(`ui_lang`, or the first of `langs`; anything else falls back to English). Write-ups can be in any
+language your model writes: the stories are told in `langs`' first language whatever language the
+sources are in. With a multilingual embedding model (e.g. `bge-m3`), an English and a Spanish
+report of the same event cluster into one story.
+
+If a model answers in the wrong language anyway (small local models like to echo the source),
+gaceta notices and asks once more, inside the same `--max-llm-calls` budget.
+
+Adding an interface language is one file: copy `src/gaceta/locales/en.json` to `<code>.json`,
+translate the values and keep the keys and `{placeholders}`. The tests check every catalog.
 
 ## Source adapters
 
@@ -162,11 +178,8 @@ Run `gaceta <command> --help` for options.
 
 ## Status
 
-Early (v0.1) and used every day by its authors. Known gaps:
+Early (v0.2) and used every day by its authors. Known gaps:
 
-- The paper's interface text is Spanish-first today (*Más así / Menos así / Visto*); full interface
-  i18n is next. Write-ups are requested in `langs`, but small local models sometimes answer in the
-  source's language instead.
 - Small local models also overstate claims now and then. Every card links its sources: check strong
   claims there, or use a bigger model.
 - Corrections (flagging when a story contradicts what it said before) are designed but not built.

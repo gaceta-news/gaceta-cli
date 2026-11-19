@@ -11,45 +11,24 @@ from __future__ import annotations
 
 import html
 import re
+from contextvars import ContextVar
 from datetime import date, datetime
 from urllib.parse import urlsplit
 
-from .. import privacy
+from .. import i18n, privacy
 from ..media import YOUTUBE_ID_RE
 
-STATUS_LABELS = {
-    "developing": "En desarrollo",
-    "settled": "",
-    "corrected": "Corregido",
-}
+STATUS_KEYS = {"developing": "status.developing", "corrected": "status.corrected"}
+
+# interface language of the document being rendered (set by render / render_guardadas)
+_LANG: ContextVar[str] = ContextVar("gaceta_render_lang", default="es")
+
+
+def _t(key: str, n: int | None = None, **kw) -> str:
+    return i18n.t(_LANG.get(), key, n, **kw)
 
 _LOCAL_MEDIA_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 READER_LINK_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
-
-_WEEKDAYS = (
-    "lunes",
-    "martes",
-    "miércoles",
-    "jueves",
-    "viernes",
-    "sábado",
-    "domingo",
-)
-
-_MONTHS = (
-    "enero",
-    "febrero",
-    "marzo",
-    "abril",
-    "mayo",
-    "junio",
-    "julio",
-    "agosto",
-    "septiembre",
-    "octubre",
-    "noviembre",
-    "diciembre",
-)
 
 _CSS = """
 :root {
@@ -511,14 +490,14 @@ def _esc(value: object) -> str:
     return html.escape(str(value), quote=True)
 
 
-def _spanish_date(value: object) -> str:
-    """ISO date → Spanish long date (e.g. "martes 17 de noviembre de 2026")."""
+def _long_date(value: object) -> str:
+    """ISO date → long date in the page language (e.g. "martes 17 de noviembre de 2026")."""
     text = str(value or "").strip()
     try:
         day = date.fromisoformat(text[:10])
     except ValueError:
         return text
-    return f"{_WEEKDAYS[day.weekday()]} {day.day} de {_MONTHS[day.month - 1]} de {day.year}"
+    return i18n.long_date(_LANG.get(), day)
 
 
 def _hhmm(value: object) -> str:
@@ -549,35 +528,42 @@ def _folio_row(folio: dict, edition: dict) -> str:
     slots = []
     code = str(folio.get("code") or "").strip()
     if code:
-        slots.append(f'<span class="slot">No. {_esc(code)}</span>')
-    label = str(folio.get("date_label") or "").strip() or _spanish_date(edition.get("date"))
+        slots.append(f'<span class="slot">{_esc(_t("folio.no", code=code))}</span>')
     raw_date = str(edition.get("date") or "")
+    try:
+        day = date.fromisoformat(raw_date[:10])
+    except ValueError:
+        day = None
+    label = (str(folio.get("date_label") or "").strip() if folio.get("lang", "es") == _LANG.get()
+             else "") or _long_date(raw_date)
     if label:
         time_attr = f' datetime="{_esc(raw_date)}"' if raw_date else ""
-        short = " ".join(label.split()[:2] + [w[:3] for w in label.split()[3:4]])  # "martes 17 nov"
+        short = (i18n.short_date(_LANG.get(), day) if day else
+                 " ".join(label.split()[:2] + [w[:3] for w in label.split()[3:4]]))
         slots.append(f'<span class="slot slot-mid"><time{time_attr}><span class="long">{_esc(label)}</span>'
                      f'<span class="short">{_esc(short)}</span></time></span>')
     window = str(folio.get("window_end") or "").strip() or _hhmm(edition.get("built_at"))
     if window:
-        slots.append(f'<span class="slot slot-right">24 h a las {_esc(window)}</span>')
+        slots.append(f'<span class="slot slot-right">{_esc(_t("folio.window", time=window))}</span>')
     return f'<p class="folio-row">{"".join(slots)}</p>' if slots else ""
 
 
 def _dateline_row(folio: dict, edition: dict, reader_name: str) -> str:
     """How big the day was, with denominators: portada/stories · items · voices."""
     stories = edition.get("stories") or {}
-    left = (f'<span class="slot"><span class="reader">Para {_esc(reader_name)}</span></span>'
+    left = (f'<span class="slot"><span class="reader">{_esc(_t("dateline.for", name=reader_name))}</span></span>'
             if reader_name else "")
     portada_n = _count(folio.get("portada"))
     if portada_n is None:
         portada_n = len([s for s in edition.get("portada") or [] if s in stories])
     stories_total = _count(folio.get("stories_total")) or len(stories)
     items_total = _count(folio.get("items_total"))
-    mid = _esc(f"{portada_n} de {stories_total} historias")
+    mid = _esc(_t("dateline.stories", n=portada_n, total=stories_total))
     if items_total is not None:
-        mid += f'<span class="wide-only"> · {items_total} ítems</span>'
+        mid += f'<span class="wide-only"> · {_esc(_t("dateline.items", n=items_total))}</span>'
     voices = _count(folio.get("voices"))
-    right = f'<span class="slot slot-right">{voices} voces</span>' if voices is not None else ""
+    right = (f'<span class="slot slot-right">{_esc(_t("dateline.voices", n=voices))}</span>'
+             if voices is not None else "")
     return (f'<p class="dateline-row">{left}'
             f'<span class="slot slot-mid">{mid}</span>{right}</p>')
 
@@ -592,8 +578,7 @@ def _instrument_line(instrument: dict, max_level: str) -> str:
         return ""
     if privacy.rank(max_level) <= privacy.rank("public"):
         return ""
-    return (f'<p class="instrument">{k} de {n} en portada '
-            f"por tus reacciones</p>")
+    return f'<p class="instrument">{_esc(_t("instrument", k=k, n=n))}</p>'
 
 
 def _short_date(value: object) -> str:
@@ -667,7 +652,7 @@ def _youtube_lite(m: dict, media_prefix: str) -> str:
     return (
         '<div class="yt-lite">'
         f'<a href="{watch}" target="_blank" rel="noopener noreferrer" '
-        'aria-label="Reproducir el video">'
+        f'aria-label="{_esc(_t("yt.play"))}">'
         f'<button type="button" data-yt="{vid}">'
         f"{_img(m, src)}"
         '<span class="yt-play" aria-hidden="true"></span>'
@@ -741,7 +726,7 @@ def _host(url: str) -> str:
 
 def _render_source(source: dict, media_prefix: str = "../media/") -> str:
     url = _safe_url(source.get("url"))
-    title = _esc(source.get("title") or "Fuente")
+    title = _esc(source.get("title") or _t("source"))
     thumb = ""
     thumb_src = _media_src(source.get("thumb"), media_prefix)
     if thumb_src:
@@ -776,7 +761,7 @@ def _render_since(story: dict) -> str:
     if len(history) < 2:
         return ""
     parts = ['<div class="since" hidden>',
-             '<p class="since-label">Desde que la viste</p>',
+             f'<p class="since-label">{_esc(_t("since.label"))}</p>',
              '<ul class="since-steps">']
     for h in history[1:]:
         at = _count(h.get("at"))
@@ -785,7 +770,7 @@ def _render_since(story: dict) -> str:
             parts.append(f'<li data-at="{at}">{_esc(text)}</li>')
     parts.append("</ul>")
     parts.append('<p class="since-note"></p>')
-    parts.append('<details class="since-before"><summary>Lo que leíste entonces</summary>')
+    parts.append(f'<details class="since-before"><summary>{_esc(_t("since.before"))}</summary>')
     for h in history[:-1]:
         at = _count(h.get("at"))
         if at and h.get("summary"):
@@ -802,7 +787,7 @@ def _render_story(story_id: str, story: dict, *, lead: bool = False,
     classes = "story lead" if lead else "story"
     heading = "h2" if lead else "h3"
     status = str(story.get("status") or "").strip().lower()
-    badge = STATUS_LABELS.get(status, "")
+    badge = _t(STATUS_KEYS[status]) if status in STATUS_KEYS else ""
 
     media_html = _lead_media_html(story, media_prefix) if lead else (
         _thumb_media_html(story, media_prefix, "card-media") if placement == "card"
@@ -832,7 +817,7 @@ def _render_story(story_id: str, story: dict, *, lead: bool = False,
     if link:
         host = _host(link)
         if host:
-            parts.append(f'<p class="fuente">Fuente: <a href="{_esc(link)}" '
+            parts.append(f'<p class="fuente">{_esc(_t("story.source"))} <a href="{_esc(link)}" '
                          f'rel="noopener noreferrer">{_esc(host)}</a></p>')
 
     if story.get("summary"):
@@ -843,7 +828,7 @@ def _render_story(story_id: str, story: dict, *, lead: bool = False,
     if url:
         title = next((s.get("title") for s in sources if s.get("url") == url and s.get("title")), None)
         if title:
-            parts.append('<p class="new-coverage"><strong>Cobertura del día:</strong> '
+            parts.append(f'<p class="new-coverage"><strong>{_esc(_t("story.coverage"))}</strong> '
                          f'<a href="{_esc(url)}" rel="noopener noreferrer">{_esc(title)}</a></p>')
 
     since = _render_since(story)
@@ -853,28 +838,28 @@ def _render_story(story_id: str, story: dict, *, lead: bool = False,
     if story.get("why_it_matters"):
         parts.append(
             '<aside class="why">'
-            '<p class="why-label">Por qué te importa</p>'
+            f'<p class="why-label">{_esc(_t("story.why"))}</p>'
             f'<p>{_esc(story.get("why_it_matters"))}</p>'
             "</aside>"
         )
 
     corrections = story.get("corrections") or []
     if corrections:
-        parts.append('<section class="corrections" aria-label="Correcciones">')
+        parts.append(f'<section class="corrections" aria-label="{_esc(_t("corrections"))}">')
         for correction in corrections:
             parts.append(
-                '<p><span class="said">Antes dijimos…</span> '
+                f'<p><span class="said">{_esc(_t("corrections.said"))}</span> '
                 f'{_esc(correction.get("said"))}</p>'
             )
             parts.append(
-                '<p><span class="now">Ahora sabemos…</span> '
+                f'<p><span class="now">{_esc(_t("corrections.now"))}</span> '
                 f'{_esc(correction.get("now"))}</p>'
             )
         parts.append("</section>")
 
     if sources:
         parts.append('<footer class="sources">')
-        parts.append('<p class="sources-label">Fuentes</p>')
+        parts.append(f'<p class="sources-label">{_esc(_t("sources"))}</p>')
         # newest first; long threads fold behind <details> so a 40-source story stays readable
         ordered = sorted(sources, key=lambda x: str(x.get("published") or ""), reverse=True)
         head, rest = ordered[:SOURCES_SHOWN], ordered[SOURCES_SHOWN:]
@@ -882,7 +867,7 @@ def _render_story(story_id: str, story: dict, *, lead: bool = False,
         parts.extend(_render_source(source, media_prefix) for source in head)
         parts.append("</ul>")
         if rest:
-            parts.append(f"<details><summary>{len(rest)} fuentes más</summary><ul>")
+            parts.append(f"<details><summary>{_esc(_t('sources.more', n=len(rest)))}</summary><ul>")
             parts.extend(_render_source(source, media_prefix) for source in rest)
             parts.append("</ul></details>")
         parts.append("</footer>")
@@ -894,9 +879,9 @@ def _render_story(story_id: str, story: dict, *, lead: bool = False,
 
 
 DISCOVERY_KIND_LABELS = {
-    "youtube": "YouTube", "nostr": "Nostr", "rss": "RSS", "hn": "HN",
-    "release": "Release", "site": "Sitio", "other": "Fuente",
+    "youtube": "YouTube", "nostr": "Nostr", "rss": "RSS", "hn": "HN", "release": "Release",
 }
+DISCOVERY_KIND_KEYS = {"site": "discovery.kind.site", "other": "discovery.kind.other"}
 
 
 def _short_label(raw: object, max_label: int = 32) -> str:
@@ -917,14 +902,15 @@ def _render_discovery_entry(entry: dict, stories: dict, *, trial: bool) -> str:
     the served page fills with Seguir / Quitar / Más tarde (owner only)."""
     key = _esc(entry.get("key"))
     name = _esc(_short_label(entry.get("name") or entry.get("key")))
-    kind_label = _esc(DISCOVERY_KIND_LABELS.get(str(entry.get("kind") or ""),
-                                                str(entry.get("kind") or "")))
+    kind = str(entry.get("kind") or "")
+    kind_label = _esc(_t(DISCOVERY_KIND_KEYS[kind]) if kind in DISCOVERY_KIND_KEYS
+                      else DISCOVERY_KIND_LABELS.get(kind, kind))
     if trial:
         try:
             n = int(entry.get("n_items") or 0)
         except (TypeError, ValueError):
             n = 0
-        reason = f"A prueba · {n} {'entrada' if n == 1 else 'entradas'}"
+        reason = _t("discovery.trial", n)
     else:
         reason = str(entry.get("reason") or "")
     meta = " · ".join(part for part in (kind_label, _esc(reason)) if part)
@@ -945,7 +931,7 @@ def _render_discovery_entry(entry: dict, stories: dict, *, trial: bool) -> str:
             title = _esc((stories[sid] or {}).get("title") or sid)
             links.append(f'<a href="#{_esc(sid)}">{title}</a>')
         if links:
-            parts.append(f'<p class="src-links">En este número: {" · ".join(links)}</p>')
+            parts.append(f'<p class="src-links">{_esc(_t("discovery.in_issue"))} {" · ".join(links)}</p>')
     parts.append(f'<div class="src-verdict" data-source-key="{key}" '
                  f'data-source-name="{name}"></div>')
     parts.append("</div>")
@@ -959,7 +945,7 @@ def _render_discovery(edition: dict, stories: dict) -> str:
     if not trials and not sugg:
         return ""
     parts = ['<section class="section discovery" data-section="fuentes-nuevas">',
-             "<h2>Fuentes nuevas</h2>"]
+             f"<h2>{_esc(_t('discovery.title'))}</h2>"]
     parts.extend(_render_discovery_entry(e, stories, trial=True) for e in trials)
     parts.extend(_render_discovery_entry(e, stories, trial=False) for e in sugg)
     parts.append("</section>")
@@ -1008,6 +994,15 @@ def render(edition: dict, max_level: str, media_prefix: str = "../media/") -> st
     Raises ``ValueError`` if any story's privacy is above ``max_level`` (unknown
     privacy labels count as ``private``).
     """
+    reader = edition.get("reader") or {}
+    token = _LANG.set(i18n.reader_lang(reader))
+    try:
+        return _render(edition, max_level, media_prefix)
+    finally:
+        _LANG.reset(token)
+
+
+def _render(edition: dict, max_level: str, media_prefix: str) -> str:
     stories = edition.get("stories") or {}
 
     for story_id, story in stories.items():
@@ -1019,24 +1014,25 @@ def render(edition: dict, max_level: str, media_prefix: str = "../media/") -> st
 
     reader = edition.get("reader") or {}
     reader_name = str(reader.get("name") or "").strip()
-    date_text = _spanish_date(edition.get("date"))
+    date_text = _long_date(edition.get("date"))
     raw_date = str(edition.get("date") or "")
     folio = edition.get("folio") or {}
 
-    title_text = "La Gaceta"
+    paper = str(reader.get("masthead") or "").strip() or _t("paper.name")
+    title_text = paper
     if date_text:
-        title_text = f"La Gaceta — {date_text}"
+        title_text = f"{paper} — {date_text}"
 
     reader_id = str(reader.get("id") or "").strip()
     saved_link = ""
     if READER_LINK_RE.match(reader_id):
         # the saved archive is served at /r/<reader>/guardadas; a relative link
         # works for both index.html and dated files under that prefix
-        saved_link = '<a class="saved-link" href="guardadas">Guardadas</a>'
+        saved_link = f'<a class="saved-link" href="guardadas">{_esc(_t("saved"))}</a>'
 
     parts = [
         "<!DOCTYPE html>",
-        '<html lang="es">',
+        f'<html lang="{_LANG.get()}">',
         "<head>",
         '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
@@ -1050,13 +1046,13 @@ def render(edition: dict, max_level: str, media_prefix: str = "../media/") -> st
     if folio:
         # folio row above the nameplate, dateline row below it (roadmap 11c)
         parts.append(_folio_row(folio, edition))
-        parts.append("<h1>La Gaceta</h1>")
+        parts.append(f"<h1>{_esc(paper)}</h1>")
         parts.append(_dateline_row(folio, edition, reader_name))
     else:
-        parts.append("<h1>La Gaceta</h1>")
+        parts.append(f"<h1>{_esc(paper)}</h1>")
         dateline = []
         if reader_name:
-            dateline.append(f'<span class="reader">Para {_esc(reader_name)}</span>')
+            dateline.append(f'<span class="reader">{_esc(_t("dateline.for", name=reader_name))}</span>')
         if date_text:
             dateline.append(f'<time datetime="{_esc(raw_date)}">{_esc(date_text)}</time>')
         if saved_link:
@@ -1067,10 +1063,10 @@ def render(edition: dict, max_level: str, media_prefix: str = "../media/") -> st
     built_hhmm = _hhmm(edition.get("built_at"))
     if built_hhmm and not folio:
         # with a folio row the window line ("24 h a las HH:MM") already says it
-        updated.append(_esc(f"Actualizada {built_hhmm}"))
+        updated.append(_esc(_t("updated", time=built_hhmm)))
     next_hhmm = _hhmm(edition.get("next_update"))
     if next_hhmm:
-        updated.append(_esc(f"próxima ~{next_hhmm}"))
+        updated.append(_esc(_t("next_update", time=next_hhmm)))
     if folio and saved_link:
         updated.insert(0, saved_link)
     if updated:
@@ -1088,7 +1084,7 @@ def render(edition: dict, max_level: str, media_prefix: str = "../media/") -> st
         if instrument_html:
             parts.append(instrument_html)
         parts.append('<section class="portada" data-section="portada" '
-                     'aria-label="Portada">')
+                     f'aria-label="{_esc(_t("portada"))}">')
         parts.extend(
             _render_story(story_id, stories[story_id], lead=(index == 0),
                           placement="lead" if index == 0 else "card",
@@ -1123,19 +1119,19 @@ _FILTER_JS = (
 )
 
 
-def _saved_spanish_date(at: object) -> str:
+def _saved_date(at: object) -> str:
     try:
         d = datetime.fromtimestamp(int(at)).date()
     except (TypeError, ValueError, OSError, OverflowError):
         return ""
-    return f"{d.day} de {_MONTHS[d.month - 1]} de {d.year}"
+    return i18n.day_month_year(_LANG.get(), d)
 
 
 def _render_guardada(entry: dict) -> str:
     """One saved entry: title, summary, note, sources (folded > 3)."""
-    saved = _esc(_saved_spanish_date(entry.get("at")))
+    saved = _saved_date(entry.get("at"))
 
-    title = _esc(entry.get("title") or "(sin título)")
+    title = _esc(entry.get("title") or _t("saved.untitled"))
     link = _safe_url(entry.get("url"))
     if link:
         title = f'<a href="{_esc(link)}" rel="noopener noreferrer">{title}</a>'
@@ -1145,7 +1141,7 @@ def _render_guardada(entry: dict) -> str:
         f'<header class="story-head"><h3 class="headline">{title}</h3></header>',
     ]
     if saved:
-        parts.append(f'<p class="save-meta">Guardada el {saved}</p>')
+        parts.append(f'<p class="save-meta">{_esc(_t("saved.on", date=saved))}</p>')
     if entry.get("summary"):
         parts.append(f'<p class="summary">{_esc(entry.get("summary"))}</p>')
     if entry.get("note"):
@@ -1154,11 +1150,11 @@ def _render_guardada(entry: dict) -> str:
     if sources:
         ordered = sorted(sources, key=lambda x: str(x.get("published") or ""), reverse=True)
         head, rest = ordered[:SOURCES_SHOWN], ordered[SOURCES_SHOWN:]
-        parts.append('<footer class="sources"><p class="sources-label">Fuentes</p><ul>')
+        parts.append(f'<footer class="sources"><p class="sources-label">{_esc(_t("sources"))}</p><ul>')
         parts.extend(_render_source(s, "/media/") for s in head)
         parts.append("</ul>")
         if rest:
-            parts.append(f"<details><summary>{len(rest)} fuentes más</summary><ul>")
+            parts.append(f"<details><summary>{_esc(_t('sources.more', n=len(rest)))}</summary><ul>")
             parts.extend(_render_source(s, "/media/") for s in rest)
             parts.append("</ul></details>")
         parts.append("</footer>")
@@ -1166,7 +1162,17 @@ def _render_guardada(entry: dict) -> str:
     return "\n".join(parts)
 
 
-def render_guardadas(reader_id: str, by: str, entries: list[dict]) -> str:
+def render_guardadas(reader_id: str, by: str, entries: list[dict], lang: str = "es",
+                     masthead: str = "") -> str:
+    """Saved archive page in ``lang`` (the reader's interface language)."""
+    token = _LANG.set(i18n.normalize(lang))
+    try:
+        return _render_guardadas(reader_id, by, entries, masthead)
+    finally:
+        _LANG.reset(token)
+
+
+def _render_guardadas(reader_id: str, by: str, entries: list[dict], masthead: str) -> str:
     """One person's saved archive (GET /r/<reader>/guardadas?by=): edition skeleton.
 
     ``entries`` (newest first): {title, url, summary, note, at, sources}.
@@ -1174,39 +1180,38 @@ def render_guardadas(reader_id: str, by: str, entries: list[dict]) -> str:
     """
     dateline = []
     if str(by or "").strip():
-        dateline.append(f'<span class="reader">Guardadas de {_esc(by)}</span>')
-    dateline.append('<a class="saved-link" href=".">Volver a la edición</a>')
+        dateline.append(f'<span class="reader">{_esc(_t("saved.of", name=by))}</span>')
+    dateline.append(f'<a class="saved-link" href=".">{_esc(_t("saved.back"))}</a>')
+    paper = str(masthead or "").strip() or _t("paper.name")
     parts = [
         "<!DOCTYPE html>",
-        '<html lang="es">',
+        f'<html lang="{_LANG.get()}">',
         "<head>",
         '<meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
-        "<title>La Gaceta — Guardadas</title>",
+        f"<title>{_esc(paper)} — {_esc(_t('saved'))}</title>",
         f"<style>{_CSS}</style>",
         "</head>",
         "<body>",
         '<div class="wrap">',
         '<header class="masthead">',
-        "<h1>La Gaceta</h1>",
+        f"<h1>{_esc(paper)}</h1>",
         f'<p class="dateline">{" · ".join(dateline)}</p>',
         "</header>",
         "<main>",
         '<section class="section" data-section="guardadas">',
-        "<h2>Guardadas</h2>",
+        f"<h2>{_esc(_t('saved'))}</h2>",
         '<div class="filter-bar">'
-        '<input type="search" id="gf-q" placeholder="Filtrar por texto…" '
-        'aria-label="Filtrar guardadas por texto">'
+        f'<input type="search" id="gf-q" placeholder="{_esc(_t("saved.filter"))}" '
+        f'aria-label="{_esc(_t("saved.filter_aria"))}">'
         "</div>",
     ]
     if not str(by or "").strip():
-        parts.append('<p class="summary">Ábrela desde tu edición (enlace «Guardadas» '
-                     'arriba): cada quien ve solo lo que guardó.</p>')
+        parts.append(f'<p class="summary">{_esc(_t("saved.open_hint"))}</p>')
     elif entries:
         parts.extend(_render_guardada(e) for e in entries)
     else:
-        parts.append('<p class="summary">Aún no has guardado nada. '
-                     'Usa «Guardar» en una historia para archivarla aquí.</p>')
+        parts.append(f'<p class="summary">{_esc(_t("saved.empty"))}</p>')
     parts.extend(["</section>", "</main>", "</div>"])
     parts.append(f"<script>{_FILTER_JS}</script>")
     parts.extend(["</body>", "</html>"])

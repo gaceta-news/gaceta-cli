@@ -22,6 +22,17 @@
   var dm = /(\d{4}-\d{2}-\d{2})\.html$/.exec(location.pathname);
   var date = dm ? dm[1] : null;
   var by = null;
+
+  /* Interface strings: the server inlines window.GACETA_L10N for the page's
+   * <html lang> (gaceta/locales/<lang>.json, "js" block). tr("key", {n: 2}). */
+  var L10N = window.GACETA_L10N || {};
+  function tr(key, vars) {
+    var n = vars && typeof vars.n === "number" ? vars.n : null;
+    var text = (n !== null && L10N[key + (n === 1 ? "_one" : "_other")]) || L10N[key] || key;
+    return text.replace(/\{(\w+)\}/g, function (m, k) {
+      return vars && vars[k] !== undefined ? String(vars[k]) : m;
+    });
+  }
   try { by = localStorage.getItem("gaceta.by"); } catch (e) { /* private mode */ }
 
   /* The bar shows three buttons (✓ Visto / Más así / Menos así) plus an ⓘ
@@ -197,9 +208,9 @@
   /* ------------------------------------------------------------ source verdicts */
 
   var SRC_DONE_LINE = {
-    follow: function (n) { return "✓ Seguirás " + n; },
-    drop: function () { return "✓ Quitada"; },
-    later: function () { return "✓ Te la vuelvo a mostrar en una semana"; }
+    follow: function (n) { return tr("src.follow_done", { name: n }); },
+    drop: function () { return tr("src.drop_done"); },
+    later: function () { return tr("src.later_done"); }
   };
 
   function srcDoneLine(el, decision) {
@@ -226,8 +237,8 @@
       var bar = document.createElement("div");
       bar.className = "gaceta-src";
       bar.setAttribute("role", "group");
-      bar.setAttribute("aria-label", "¿Seguir esta fuente?");
-      [["follow", "Seguir"], ["drop", "Quitar"], ["later", "Más tarde"]].forEach(function (d) {
+      bar.setAttribute("aria-label", tr("src.aria"));
+      [["follow", tr("src.follow")], ["drop", tr("src.drop")], ["later", tr("src.later")]].forEach(function (d) {
         var b = document.createElement("button");
         b.type = "button";
         b.textContent = d[1];
@@ -237,7 +248,7 @@
             .then(function (res) {
               if (!res || !res.ok) {
                 [].forEach.call(bar.querySelectorAll("button"), function (x) { x.disabled = false; });
-                toast("No se pudo guardar — reintenta");
+                toast(tr("err.save"));
                 return;
               }
               srcDoneLine(el, d[0]);
@@ -261,7 +272,7 @@
     a.removeAttribute("data-gaceta-extra");
   }
 
-  var VERDICT = { more: "Más así", less: "Menos así", seen: "Vista" };
+  var VERDICT = { more: tr("verdict.more"), less: tr("verdict.less"), seen: tr("verdict.seen_done") };
 
   function fadeOut(a, kind) {
     a.style.transition = "opacity .25s";
@@ -296,10 +307,10 @@
     row.className = "gaceta-done";
     row.setAttribute("role", "status");
     var t = document.createElement("span");
-    t.textContent = "✓ " + (VERDICT[kind] || "Vista");
+    t.textContent = "✓ " + (VERDICT[kind] || VERDICT.seen);
     var u = document.createElement("button");
     u.type = "button";
-    u.textContent = "deshacer";
+    u.textContent = tr("undo");
     row.appendChild(t);
     row.appendChild(u);
     a.parentNode.insertBefore(row, a.nextSibling);
@@ -330,9 +341,9 @@
     var h = a.querySelector(".headline") || a;
     var b = document.createElement("span");
     b.className = "gaceta-novelty";
-    b.textContent = "Novedad";
-    b.title = "Cambió desde que la viste";
-    b.setAttribute("aria-label", "Cambió desde que la viste");
+    b.textContent = tr("novelty");
+    b.title = tr("novelty.title");
+    b.setAttribute("aria-label", tr("novelty.title"));
     h.appendChild(b);
   }
 
@@ -342,7 +353,7 @@
    * flag the sources that are new, and keep the text they read one tap away. */
   function fmtWhen(ts) {
     try {
-      return new Date(ts * 1000).toLocaleString("es-CO", {
+      return new Date(ts * 1000).toLocaleString(L10N._locale || document.documentElement.lang || undefined, {
         day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
     } catch (e) { return ""; }
   }
@@ -358,7 +369,7 @@
         newSrc++;
         var tag = document.createElement("span");
         tag.className = "src-new";
-        tag.textContent = "nueva";
+        tag.textContent = tr("src.new");
         li.appendChild(tag);
       }
     });
@@ -379,12 +390,12 @@
     if (det) det.hidden = !before;
     var note = box.querySelector(".since-note");
     var bits = [];
-    if (newSrc) bits.push(newSrc === 1 ? "1 fuente nueva (marcada abajo)" : newSrc + " fuentes nuevas (marcadas abajo)");
-    if (!steps && !newSrc) bits.push("Sin fuentes nuevas: se reescribió el resumen.");
+    if (newSrc) bits.push(tr("since.new_src", { n: newSrc }));
+    if (!steps && !newSrc) bits.push(tr("since.reworded"));
     if (note) note.textContent = bits.join(" · ");
     var label = box.querySelector(".since-label");
     var when = fmtWhen(at);
-    if (label) label.textContent = "Desde que la viste" + (when ? " (" + when + ")" : "");
+    if (label) label.textContent = tr("since.label") + (when ? " (" + when + ")" : "");
     box.hidden = !(steps || newSrc || before);
   }
 
@@ -430,7 +441,7 @@
       });
       arrangeSections();
       refreshCount();
-      toast("No se pudo guardar — reintenta");
+      toast(tr("err.save"));
     });
   }
 
@@ -447,7 +458,7 @@
         a.style.opacity = prevOp;
         applySeen(a);
         refreshCount();
-        toast("No se pudo guardar — reintenta");
+        toast(tr("err.save"));
       });
   }
 
@@ -455,14 +466,14 @@
 
   function sectionTitle(sec) {
     var h = sec.querySelector("h2");
-    return h ? h.textContent.trim() : (sec.getAttribute("data-section") || "sección");
+    return h ? h.textContent.trim() : (sec.getAttribute("data-section") || "");
   }
 
   function sectools(sec) {
     var d = document.createElement("div");
     d.className = "gaceta-sectools";
     d.setAttribute("role", "group");
-    d.setAttribute("aria-label", "Herramientas de sección");
+    d.setAttribute("aria-label", tr("sec.tools"));
     sec.appendChild(d);
     return d;
   }
@@ -470,7 +481,7 @@
   function uptodateLine(sec) {
     var p = document.createElement("p");
     p.className = "gaceta-uptodate";
-    p.textContent = "Al día en " + sectionTitle(sec) + " ✓";
+    p.textContent = tr("sec.uptodate", { section: sectionTitle(sec) });
     sec.appendChild(p);
   }
 
@@ -503,9 +514,9 @@
       if (hiddenExtra) {
         var more = document.createElement("button");
         more.type = "button";
-        var moreLabel = function (n) { more.textContent = "más (" + n + ")"; };
+        var moreLabel = function (n) { more.textContent = tr("sec.more", { n: n }); };
         moreLabel(hiddenExtra);
-        more.setAttribute("aria-label", "Mostrar más historias de " + sectionTitle(sec));
+        more.setAttribute("aria-label", tr("sec.more_aria", { section: sectionTitle(sec) }));
         var left = hiddenExtra;
         more.addEventListener("click", function () {
           var extras = [].slice.call(
@@ -523,8 +534,8 @@
       }
       var mark = document.createElement("button");
       mark.type = "button";
-      mark.textContent = "Marcar sección como vista";
-      mark.setAttribute("aria-label", "Marcar todas las visibles de " + sectionTitle(sec) + " como vistas");
+      mark.textContent = tr("sec.mark");
+      mark.setAttribute("aria-label", tr("sec.mark_aria", { section: sectionTitle(sec) }));
       mark.addEventListener("click", function () {
         var visible = arts.filter(function (a) {
           return a.style.display !== "none" && !a.getAttribute("data-gaceta-extra") && isNew(a);
@@ -567,7 +578,7 @@
       function apply(isClosed) {
         sec.classList.toggle("gaceta-closed", isClosed);
         h.setAttribute("aria-expanded", isClosed ? "false" : "true");
-        h.title = isClosed ? "Abrir sección" : "Cerrar sección (no marca nada como visto)";
+        h.title = isClosed ? tr("sec.open") : tr("sec.close");
       }
       apply(!!closed[id]);
       function toggle() {
@@ -598,7 +609,7 @@
       var n = [].slice.call(sec.querySelectorAll("article[id]")).filter(function (a) {
         return !isSeenNow(a);
       }).length;
-      el.textContent = n ? (n === 1 ? "1 nueva" : n + " nuevas") : "al día";
+      el.textContent = n ? tr("count.new", { n: n }) : tr("count.none");
     });
   }
 
@@ -608,7 +619,7 @@
     var n = articles().filter(function (a) {
       return a.style.display !== "none" && isNew(a) && !a.closest(".gaceta-closed");
     }).length;
-    counterEl.textContent = n === 1 ? "1 nueva" : n + " nuevas";
+    counterEl.textContent = tr("count.new", { n: n });
     counterEl.style.display = n ? "" : "none";
   }
 
@@ -621,12 +632,12 @@
     topbar.appendChild(counterEl);
     seenToggle = document.createElement("button");
     seenToggle.type = "button";
-    seenToggle.textContent = "ver vistas";
-    seenToggle.setAttribute("aria-label", "Mostrar u ocultar las historias ya vistas");
+    seenToggle.textContent = tr("seen.show");
+    seenToggle.setAttribute("aria-label", tr("seen.aria"));
     seenToggle.setAttribute("aria-pressed", "false");
     seenToggle.addEventListener("click", function () {
       showSeen = !showSeen;
-      seenToggle.textContent = showSeen ? "ocultar vistas" : "ver vistas";
+      seenToggle.textContent = showSeen ? tr("seen.hide") : tr("seen.show");
       seenToggle.setAttribute("aria-pressed", showSeen ? "true" : "false");
       arrangeSections();
     });
@@ -693,7 +704,7 @@
     var bar = document.createElement("div");
     bar.className = "gaceta-rx";
     bar.setAttribute("role", "group");
-    bar.setAttribute("aria-label", "Qué hago con esta historia");
+    bar.setAttribute("aria-label", tr("bar.aria"));
     function verdict(kind, label, title) {
       var b = segment(bar, kind, label, title);
       b.setAttribute("aria-pressed", "false");
@@ -702,7 +713,7 @@
         var opening = b.getAttribute("aria-pressed") !== "true";
         if (opening) b.setAttribute("aria-pressed", "true");
         react(kind, storyId).then(function (res) {
-          if (!res) { syncBar(bar, []); toast("No se pudo guardar — reintenta"); return; }
+          if (!res) { syncBar(bar, []); toast(tr("err.save")); return; }
           syncBar(bar, res.state.kinds || []);
           /* Decision 12: one 3-way verdict; every option closes the story. */
           if (opening && isNew(article)) {
@@ -712,9 +723,9 @@
       });
       return b;
     }
-    verdict("more", "Más así", "Más así — cierra con señal positiva");
-    verdict("less", "Menos así", "Menos así — cierra con señal negativa");
-    var seen = segment(bar, "seen", "Visto", "Visto — cierra sin señal");
+    verdict("more", tr("verdict.more"), tr("verdict.more_title"));
+    verdict("less", tr("verdict.less"), tr("verdict.less_title"));
+    var seen = segment(bar, "seen", tr("verdict.seen"), tr("verdict.seen_title"));
     seen.setAttribute("aria-pressed", "false");
     seen.addEventListener("click", function () {
       if (!by) return;
@@ -727,7 +738,7 @@
       }
     });
     if (by) {  /* saves are local and per person (DECISIONS #14) */
-      var sv = segment(bar, "save", "Guardar", "Guardar en tu archivo (no la cierra)");
+      var sv = segment(bar, "save", tr("save"), tr("save.title"));
       sv.setAttribute("aria-pressed", savedState[storyId] ? "true" : "false");
       sv.addEventListener("click", function () {
         var on = sv.getAttribute("aria-pressed") !== "true";
@@ -736,17 +747,16 @@
           .then(function (res) {
             if (!res || !res.ok) {
               sv.setAttribute("aria-pressed", on ? "false" : "true");
-              toast("No se pudo guardar — reintenta");
+              toast(tr("err.save"));
               return;
             }
             if (on) savedState[storyId] = 1; else delete savedState[storyId];
-            if (on) toast("Guardada en tu archivo");
+            if (on) toast(tr("save.done"));
           });
       });
     }
     if (agentName) {
-      var ag = segment(bar, "agent", agentName, "Mandar a " + agentName +
-        ": guardarla, actuar, o conversar sobre ella");
+      var ag = segment(bar, "agent", agentName, tr("agent.title", { agent: agentName }));
       ag.setAttribute("aria-expanded", "false");
       ag.addEventListener("click", function () {
         var open = ag.getAttribute("aria-expanded") !== "true";
@@ -754,7 +764,7 @@
         toggleComposer(article, storyId, bar, ag, open);
       });
     }
-    var info = segment(bar, "info", "", "¿Por qué está aquí?");
+    var info = segment(bar, "info", "", tr("info.title"));
     info.className = "gaceta-info";
     info.setAttribute("aria-expanded", "false");
     info.addEventListener("click", function () {
@@ -781,18 +791,18 @@
     var ta = document.createElement("textarea");
     ta.rows = 2;
     ta.maxLength = 1000;
-    ta.placeholder = "Opcional: guárdala, ¿qué opinas?, investiga más, hazlo…";
-    ta.setAttribute("aria-label", "Nota para " + agentName);
+    ta.placeholder = tr("compose.placeholder");
+    ta.setAttribute("aria-label", tr("compose.aria", { agent: agentName }));
     var row = document.createElement("div");
     row.className = "gaceta-compose-row";
     var send = document.createElement("button");
     send.type = "submit";
     send.className = "gaceta-compose-send";
-    send.textContent = "Mandar a " + agentName;
+    send.textContent = tr("compose.send", { agent: agentName });
     var cancel = document.createElement("button");
     cancel.type = "button";
     cancel.className = "gaceta-compose-cancel";
-    cancel.textContent = "Cancelar";
+    cancel.textContent = tr("compose.cancel");
     cancel.addEventListener("click", function () {
       btn.setAttribute("aria-expanded", "false");
       box.remove();
@@ -808,15 +818,15 @@
         .then(function (res) {
           if (!res || !res.ok) {
             send.disabled = false;
-            toast("No se pudo mandar — reintenta");
+            toast(tr("err.send"));
             return;
           }
           var done = document.createElement("p");
           done.className = "gaceta-compose-done";
           done.setAttribute("role", "status");
           done.textContent = res.delivered
-            ? "✦ Se la mandé a " + agentName + ". Te contesta por su canal."
-            : "✦ Guardada para " + agentName + ".";
+            ? tr("agent.sent", { agent: agentName })
+            : tr("agent.saved", { agent: agentName });
           box.replaceWith(done);
           btn.setAttribute("aria-expanded", "false");
           btn.setAttribute("aria-pressed", "true");
@@ -833,10 +843,10 @@
     panel = document.createElement("div");
     panel.className = "gaceta-why";
     var head = document.createElement("strong");
-    head.textContent = "Por qué está aquí:";
+    head.textContent = tr("why.head");
     panel.appendChild(head);
     var ul = document.createElement("ul");
-    (reasons && reasons.length ? reasons : ["sin razones registradas"]).forEach(function (r) {
+    (reasons && reasons.length ? reasons : [tr("why.none")]).forEach(function (r) {
       var li = document.createElement("li");
       li.textContent = r;
       ul.appendChild(li);
@@ -856,7 +866,7 @@
         var bar = document.createElement("div");
         bar.className = "gaceta-bybar";
         var label = document.createElement("span");
-        label.textContent = "¿Quién lee?";
+        label.textContent = tr("who.label");
         bar.appendChild(label);
         var names = [info.owner].concat(info.household || []);
         names.forEach(function (n) {
@@ -871,12 +881,12 @@
         });
         var other = document.createElement("button");
         other.type = "button";
-        other.textContent = "otro…";
+        other.textContent = tr("who.other");
         other.addEventListener("click", function () {
           var input = document.createElement("input");
           input.maxLength = 40;
-          input.placeholder = "tu nombre";
-          input.setAttribute("aria-label", "tu nombre");
+          input.placeholder = tr("who.name");
+          input.setAttribute("aria-label", tr("who.name"));
           other.hidden = true;
           bar.appendChild(input);
           input.focus();
@@ -992,8 +1002,8 @@
     freshEl = document.createElement("button");
     freshEl.type = "button";
     freshEl.className = "gaceta-fresh";
-    freshEl.textContent = "Edición nueva ↻";
-    freshEl.setAttribute("aria-label", "Hay una edición más reciente: recargar");
+    freshEl.textContent = tr("fresh");
+    freshEl.setAttribute("aria-label", tr("fresh.aria"));
     freshEl.addEventListener("click", function () { location.reload(); });
     topbar.insertBefore(freshEl, topbar.firstChild);
     topbar.classList.remove("is-away");
@@ -1020,9 +1030,9 @@
       if (booted) return;
       if (!st) {
         bootTries++;
-        if (bootTries === 1) toast("No pude traer lo que ya viste — reintento…");
+        if (bootTries === 1) toast(tr("boot.retry"));
         if (bootTries < 4) setTimeout(boot, 4000 * bootTries);
-        else toast("Sin conexión con la gaceta: todo aparece como nuevo");
+        else toast(tr("boot.offline"));
         return;
       }
       booted = true;

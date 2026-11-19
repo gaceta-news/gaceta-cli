@@ -27,7 +27,7 @@ from urllib.parse import unquote_plus, urlsplit
 
 import re
 
-from .. import config, privacy
+from .. import config, i18n, privacy
 from ..discovery import discovery_block
 from ..editor import taste
 from ..media import YOUTUBE_ID_RE
@@ -38,19 +38,13 @@ WINDOW_DAYS = 14
 PORTADA_SIZE = 6
 SECTION_CAP = 30  # deeper sections: hiding seen stories reveals more below
 MAX_THUMBS = 4  # lead + up to 3 more
-TOLD_SECTION = ("lo-que-te-conte", "Lo que te conté")
-REST_SECTION = ("otros", "Otros")
-
-# Spanish date tables (no locale dependency; the reader's paper is in Spanish
-# whatever the build machine's locale is).
-_WEEKDAYS = ("lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo")
-_MONTHS = ("enero", "febrero", "marzo", "abril", "mayo", "junio", "julio",
-           "agosto", "septiembre", "octubre", "noviembre", "diciembre")
-
+# section ids stay stable across languages (links, closed-state); titles follow ui lang
+TOLD_SECTION = ("lo-que-te-conte", "section.told")
+REST_SECTION = ("otros", "section.rest")
 
 def spanish_date(day: date) -> str:
-    """e.g. date(2026, 11, 17) → "martes 17 de noviembre de 2026"."""
-    return f"{_WEEKDAYS[day.weekday()]} {day.day} de {_MONTHS[day.month - 1]} de {day.year}"
+    """e.g. date(2026, 11, 17) → "martes 17 de noviembre de 2026" (kept for callers)."""
+    return i18n.long_date("es", day)
 
 
 def _iso(ts) -> str | None:
@@ -98,23 +92,26 @@ def _link_keys(url) -> tuple[str, tuple[str, str, str]] | None:
     return host, (host, parts.path.rstrip("/"), query)
 
 
-def _score_and_reasons(s: dict, end: int, *, sites: int | None = None) -> tuple[float, list[str]]:
-    """Base score + short Spanish reasons for each component (score_reasons)."""
+def _score_and_reasons(s: dict, end: int, *, sites: int | None = None,
+                       lang: str = "es") -> tuple[float, list[str]]:
+    """Base score + short reasons (in the reader's language) for each component."""
+    def r(key: str, v: float, **kw) -> str:
+        return i18n.t(lang, key, v=f"{v:+.1f}", **kw)
     coverage = math.log1p(s["n_items"] if sites is None else max(1, min(sites, 4)))
     told = 1.5 if s["n_told"] > 0 else 0.0
     rec = _recency(s["last_seen"], end)
     written = 0.5 if s["summary"] else 0.0
     reasons: list[str] = []
     if sites is None and s["n_items"] >= 2:
-        reasons.append(f"Muchas fuentes ({coverage:+.1f})")
+        reasons.append(r("reason.many_sources", coverage))
     if sites is not None and sites >= 2:
-        reasons.append(f"En {sites} sitios distintos ({coverage:+.1f})")
+        reasons.append(r("reason.sites", coverage, n=sites))
     if told:
-        reasons.append(f"Tiene algo que te conté ({told:+.1f})")
+        reasons.append(r("reason.told", told))
     if rec >= 0.05:
-        reasons.append(f"Reciente ({rec:+.1f})")
+        reasons.append(r("reason.recent", rec))
     if written:
-        reasons.append(f"Con resumen ({written:+.1f})")
+        reasons.append(r("reason.written", written))
     return coverage + told + rec + written, reasons
 
 
@@ -394,6 +391,7 @@ def build_edition(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
     day = date.fromisoformat(date_str) if date_str else datetime.fromtimestamp(built_ts).date()
     data = Path(data_dir) if data_dir else config.data_dir()
 
+    lang = i18n.reader_lang(cfg)
     edition_cfg = cfg.get("edition") or {}
     written_only = edition_cfg.get("written_only", False)
     coverage_v1 = edition_cfg.get("coverage_v1", False)
@@ -421,7 +419,7 @@ def build_edition(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
         if coverage_v1:
             sites = len({keys[0] for item in items_by_story[s["id"]]
                          if (keys := _link_keys(item["url"]))})
-        base, reasons = _score_and_reasons(s, end, sites=sites)
+        base, reasons = _score_and_reasons(s, end, sites=sites, lang=lang)
         s["_score"], s["_base"], s["_reasons"] = base, base, reasons
     # taste steering: the owner's reactions only (editor.taste); hidden stories drop out
     adj = taste.adjustments(conn, reader_id, cfg, items_by_story)
@@ -448,7 +446,7 @@ def build_edition(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
         used.update(picked)
         return picked
 
-    sections.append({"id": TOLD_SECTION[0], "title": TOLD_SECTION[1],
+    sections.append({"id": TOLD_SECTION[0], "title": i18n.t(lang, TOLD_SECTION[1]),
                      "stories": take(lambda s: s["n_told"] > 0)})
     rss_aliases = _rss_aliases(cfg)
     for sec in cfg.get("sections") or []:
@@ -456,7 +454,7 @@ def build_edition(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
         picked = take(lambda s, sec=sec: _match_section(sec, s, items_by_story, rss_aliases))
         sections.append({"id": str(sec.get("id") or "section"), "title": sec.get("title"),
                          "stories": picked})
-    sections.append({"id": REST_SECTION[0], "title": REST_SECTION[1],
+    sections.append({"id": REST_SECTION[0], "title": i18n.t(lang, REST_SECTION[1]),
                      "stories": take(lambda s: True)})
 
     stories = {}
@@ -472,7 +470,9 @@ def build_edition(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
     edition = {
         "version": 1,
         "reader": {"id": reader_id, "name": cfg.get("name") or reader_id,
-                   "langs": [l.strip() for l in str(cfg.get("langs") or "en").split(",") if l.strip()]},
+                   "langs": [l.strip() for l in str(cfg.get("langs") or "en").split(",") if l.strip()],
+                   "ui_lang": lang,
+                   **({"masthead": str(cfg["masthead"])} if cfg.get("masthead") else {})},
         "date": day.isoformat(),
         "built_at": datetime.fromtimestamp(
             built_ts
@@ -502,7 +502,8 @@ def build_edition(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
     h = hashlib.sha1("\x00".join(member_ids).encode("utf-8"))
     edition["folio"] = {
         "code": h.hexdigest()[:6].upper(),
-        "date_label": spanish_date(day),
+        "date_label": i18n.long_date(lang, day),
+        "lang": lang,
         "window_end": datetime.fromtimestamp(built_ts).astimezone().strftime("%H:%M"),
         "stories_total": len(stories),
         "items_total": len(member_ids),

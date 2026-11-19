@@ -21,7 +21,7 @@ import sqlite3
 import time
 from urllib.parse import urlsplit
 
-from . import privacy
+from . import i18n, privacy
 
 LATER_DAYS = 7
 MAX_STORIES_PER_TRIAL = 3
@@ -217,7 +217,8 @@ def _existing_hosts_and_names(conn: sqlite3.Connection) -> tuple[set[str], set[s
 
 def suggestions(conn: sqlite3.Connection, reader_id: str, since: int, *,
                 adapters=(), max_privacy: str = "private",
-                now: float | None = None, limit: int = DEFAULT_LIMIT) -> list[dict]:
+                now: float | None = None, limit: int = DEFAULT_LIMIT,
+                lang: str = "es") -> list[dict]:
     """Candidate sources the reader does not follow: adapter candidates
     (nostr mentions) + domains cited by >=MIN_CITED_ITEMS items of this
     edition's stories, excluding existing source hosts, big platforms and
@@ -281,8 +282,7 @@ def suggestions(conn: sqlite3.Connection, reader_id: str, since: int, *,
                 continue
         domain_out.append({
             "key": key, "name": host, "kind": "site",
-            "reason": f"Citada en {len(d['stories'])} "
-                      f"{'historia' if len(d['stories']) == 1 else 'historias'}",
+            "reason": i18n.t(lang, "discovery.cited", len(d["stories"])),
             "url": f"https://{host}",
             "_n": len(d["stories"]),
         })
@@ -308,7 +308,8 @@ def discovery_block(conn: sqlite3.Connection, reader_id: str, cfg: dict, since: 
                            story_scores=story_scores, now=now,
                            names=(cfg.get("discovery") or {}).get("names") or {})
     sugg = suggestions(conn, reader_id, since, adapters=adapters,
-                       max_privacy=max_privacy, now=now, limit=limit)
+                       max_privacy=max_privacy, now=now, limit=limit,
+                       lang=i18n.reader_lang(cfg))
     block: dict = {}
     if trials:
         block["trials"] = trials
