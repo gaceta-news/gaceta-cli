@@ -10,6 +10,8 @@ steer what comes next.
 It runs on your machine, with your models (local Ollama or any OpenAI-compatible API) and your data.
 Everything is a CLI command, so a cron job or your own AI agent can run the whole paper.
 
+![A gaceta front page: a lead story written from two sources, with "why it matters" and its source list](docs/screenshot.png)
+
 ```
 feeds ──▶ ingest ──▶ embed ──▶ cluster ──▶ write ──▶ edition ──▶ render / serve
           (RSS, YouTube,       (stories, not   (LLM write-ups   (immutable    (static HTML,
@@ -65,8 +67,8 @@ Fake models prove the plumbing but write nothing useful. For a real paper, see b
 
 ## A real paper, fully local (no API keys)
 
-With [Ollama](https://ollama.com) running (`ollama pull bge-m3` and any chat model, e.g. `qwen3:4b`),
-edit `readers/main/reader.toml`:
+With [Ollama](https://ollama.com) running (`ollama pull bge-m3 qwen2.5:3b`), edit
+`readers/main/reader.toml`:
 
 ```toml
 [[sources.rss.feeds]]
@@ -81,7 +83,7 @@ base_url = "http://localhost:11434"
 
 [llm.editor]
 provider = "openai"                  # any OpenAI-compatible endpoint
-model = "qwen3:4b"
+model = "qwen2.5:3b"            # bigger = better write-ups
 base_url = "http://localhost:11434/v1"
 api_key_env = ""                     # empty = no auth (local servers)
 timeout = 300                        # seconds per call; small models on CPU are slow
@@ -91,8 +93,13 @@ Using a hosted model instead: set `base_url`/`model` to your provider and
 `api_key_env = "OPENAI_API_KEY"` (or whatever env var holds the key). The same goes for `[embed]`
 with `provider = "openai"`. Keys are only read from the environment, never from config files.
 
-Then run the same commands as the quickstart, and put them in cron or a systemd timer. A daily run
-only rewrites stories that changed.
+Use an instruct model that answers directly. Reasoning models ("thinking" variants) tend to spend
+the token budget before emitting the JSON card. A 3B model on CPU writes a card in about ten
+seconds; small models also get facts wrong more often, so prefer the biggest one you can run.
+
+Then run the same commands as the quickstart and put them in cron or a systemd timer, with
+`gaceta edition --reader main --force` so reruns on the same day replace the snapshot. A run only
+rewrites stories that changed.
 
 ## Configuration
 
