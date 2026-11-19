@@ -27,7 +27,7 @@ from urllib.parse import unquote_plus, urlsplit
 
 import re
 
-from .. import config, i18n, privacy
+from .. import conditions, config, i18n, privacy
 from ..discovery import discovery_block
 from ..editor import taste
 from ..media import YOUTUBE_ID_RE
@@ -519,6 +519,11 @@ def build_edition(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
     )
     if disc:
         edition["discovery"] = disc
+    # condiciones: moving numbers captured at build time, never live (conditions.py)
+    boxes = conditions.collect(cfg, max_privacy=max_privacy,
+                               now=datetime.fromtimestamp(built_ts).astimezone())
+    if boxes:
+        edition["conditions"] = boxes
 
     path = snapshot_path(data, reader_id, day.isoformat(), max_privacy)
     if path.exists() and not force:

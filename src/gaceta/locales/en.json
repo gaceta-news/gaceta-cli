@@ -76,7 +76,10 @@
     "agent.default": "your agent",
     "verdict.more": "More like this",
     "verdict.less": "Less like this",
-    "verdict.seen": "Seen"
+    "verdict.seen": "Seen",
+    "conditions": "Conditions",
+    "conditions.stamp": "at {time}, not live",
+    "conditions.not_live": "not live"
   },
   "js": {
     "src.follow_done": "✓ You'll follow {name}",

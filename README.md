@@ -126,6 +126,7 @@ never in code.
 | `[cluster]` | `threshold` (cosine "same story") and `window_days` |
 | `[[sections]]` | named sections matched by source kind, source-id prefix or keywords |
 | `[privacy]` | canary terms pinned to `private` / `household` |
+| `[conditions.<name>]` | optional boxes of moving numbers (weather, a level), see below |
 
 ## Languages
 
@@ -158,6 +159,25 @@ mysource = "my_package.sources:MyAdapter"   # constructed with the reader's [sou
 
 Now `gaceta ingest mysource --reader main` works, and `gaceta ingest all` picks it up whenever the
 reader configures `[sources.mysource]`. Adapters must be read-only against their upstream.
+
+### Condiciones (boxes of moving numbers)
+
+A paper can carry a few small boxes, like the weather box of a printed daily: values captured when
+the edition is built, printed after the portada and stamped "a las HH:MM, no en vivo" with their
+source. A provider is a class whose `box(now)` returns `{"title", "lead", "facts": [[label, value]],
+"source", "observed_at"}` (plain text; everything is escaped):
+
+```toml
+# your package's pyproject.toml
+[project.entry-points."gaceta.conditions"]
+weather = "my_package.weather:WeatherBox"
+
+# the reader's reader.toml
+[conditions.weather]
+privacy = "household"   # default "private"; boxes above the edition's level are never collected
+```
+
+A provider that fails or returns nothing is skipped; a number never blocks the paper.
 
 ## Commands
 

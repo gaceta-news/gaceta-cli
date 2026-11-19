@@ -408,6 +408,51 @@ body { padding-bottom: 4rem; }
 @media (prefers-reduced-motion: reduce) {
   * { scroll-behavior: auto; }
 }
+.conditions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 2rem 0 0;
+}
+.cond-box {
+  flex: 1 1 18rem;
+  padding: 0.75rem 0.9rem 0.6rem;
+  border: 1px solid var(--rule);
+  border-top: 3px double var(--ink);
+  background: var(--card);
+}
+.cond-box h2 {
+  margin: 0 0 0.3rem;
+  font-size: 0.8rem;
+  font-family: inherit;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.cond-lead {
+  margin: 0 0 0.45rem;
+  font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  font-size: 1.55rem;
+  line-height: 1.15;
+}
+.cond-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(16.5rem, 1fr));
+  gap: 0.15rem 1.2rem;
+  margin: 0;
+  font-size: 0.85rem;
+}
+.cond-facts div {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.6rem;
+  border-bottom: 1px dotted var(--rule);
+  padding: 0.12rem 0;
+}
+.cond-facts dt { color: var(--muted); white-space: nowrap; }
+.cond-facts dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+@media (min-width: 30rem) { .cond-facts dd { white-space: nowrap; } }
+.cond-stamp { margin: 0.45rem 0 0; color: var(--muted); font-size: 0.72rem; letter-spacing: 0.03em; }
 .discovery .src-entry { padding-top: .9rem; border-top: 1px solid var(--rule); }
 .discovery .src-entry + .src-entry { margin-top: .9rem; }
 .discovery .src-head { margin: 0; overflow-wrap: anywhere; }
@@ -952,6 +997,38 @@ def _render_discovery(edition: dict, stories: dict) -> str:
     return "\n".join(parts)
 
 
+def _render_conditions(edition: dict, max_level: str) -> str:
+    """Condiciones boxes (conditions.py): snapshot numbers, stamped with the
+    capture time and the source, never live. Boxes above max_level are dropped
+    silently (fail closed: unknown privacy counts as private)."""
+    boxes = []
+    for box in edition.get("conditions") or []:
+        if not isinstance(box, dict) or not box.get("title"):
+            continue
+        if not privacy.allowed(box.get("privacy"), max_level):
+            continue
+        parts = ['<div class="cond-box">', f'<h2>{_esc(box["title"])}</h2>']
+        if box.get("lead"):
+            parts.append(f'<p class="cond-lead">{_esc(box["lead"])}</p>')
+        facts = [row for row in box.get("facts") or []
+                 if isinstance(row, (list, tuple)) and len(row) == 2]
+        if facts:
+            parts.append('<dl class="cond-facts">')
+            parts.extend(f"<div><dt>{_esc(k)}</dt><dd>{_esc(v)}</dd></div>" for k, v in facts)
+            parts.append("</dl>")
+        hhmm = _hhmm(box.get("observed_at")) or _hhmm(edition.get("built_at"))
+        stamp = [_t("conditions.stamp", time=hhmm) if hhmm else _t("conditions.not_live")]
+        if box.get("source"):
+            stamp.append(str(box["source"]))
+        parts.append(f'<p class="cond-stamp">{_esc(" · ".join(stamp))}</p>')
+        parts.append("</div>")
+        boxes.append("\n".join(parts))
+    if not boxes:
+        return ""
+    return (f'<aside class="conditions" aria-label="{_esc(_t("conditions"))}">\n'
+            + "\n".join(boxes) + "\n</aside>")
+
+
 def _render_section(section: dict, stories: dict, media_prefix: str = "../media/") -> str:
     story_ids = [
         story_id
@@ -1092,6 +1169,11 @@ def _render(edition: dict, max_level: str, media_prefix: str) -> str:
             for index, story_id in enumerate(portada_ids)
         )
         parts.append("</section>")
+
+    # after the portada, never in the headline area (conditions.py)
+    conditions_html = _render_conditions(edition, max_level)
+    if conditions_html:
+        parts.append(conditions_html)
 
     for section in edition.get("sections") or []:
         rendered = _render_section(section, stories, media_prefix)
