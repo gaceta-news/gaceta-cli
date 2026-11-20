@@ -2,10 +2,52 @@
   "name": "Español",
   "locale": "es",
   "dates": {
-    "weekdays": ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"],
-    "weekdays_short": ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"],
-    "months": ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"],
-    "months_short": ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"],
+    "weekdays": [
+      "lunes",
+      "martes",
+      "miércoles",
+      "jueves",
+      "viernes",
+      "sábado",
+      "domingo"
+    ],
+    "weekdays_short": [
+      "lun",
+      "mar",
+      "mié",
+      "jue",
+      "vie",
+      "sáb",
+      "dom"
+    ],
+    "months": [
+      "enero",
+      "febrero",
+      "marzo",
+      "abril",
+      "mayo",
+      "junio",
+      "julio",
+      "agosto",
+      "septiembre",
+      "octubre",
+      "noviembre",
+      "diciembre"
+    ],
+    "months_short": [
+      "ene",
+      "feb",
+      "mar",
+      "abr",
+      "may",
+      "jun",
+      "jul",
+      "ago",
+      "sep",
+      "oct",
+      "nov",
+      "dic"
+    ],
     "long": "{weekday} {day} de {month} de {year}",
     "short": "{weekday} {day} {mon}",
     "dmy": "{day} de {month} de {year}"
@@ -79,7 +121,9 @@
     "verdict.seen": "Visto",
     "conditions": "Condiciones",
     "conditions.stamp": "a las {time}, no en vivo",
-    "conditions.not_live": "no en vivo"
+    "conditions.not_live": "no en vivo",
+    "reason.portada_recent": "Ya estuvo en portada ({v})",
+    "reason.portada_rest": "Lleva varias ediciones en portada; hoy descansa"
   },
   "js": {
     "src.follow_done": "✓ Seguirás {name}",

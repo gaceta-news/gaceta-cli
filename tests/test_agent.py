@@ -70,8 +70,8 @@ def test_send_is_a_strong_positive_signal(env):
     from test_discovery import _seed
     _seed(env)
     sid = env.conn.execute("SELECT id FROM stories LIMIT 1").fetchone()["id"]
-    env.conn.execute("INSERT INTO agent_sends (reader_id, by_name, story_id, at) VALUES (?,?,?,1)",
-                     (env.cfg.get("id") or "testreader", env.cfg.get("name") or "testreader", sid))
+    env.conn.execute("INSERT INTO agent_sends (reader_id, by_name, story_id, at) VALUES (?,?,?,?)",
+                     (env.cfg.get("id") or "testreader", env.cfg.get("name") or "testreader", sid, int(time.time())))
     adj = taste.adjustments(env.conn, env.cfg.get("id") or "testreader", env.cfg)
     assert adj.delta.get(sid) == 2.5
     assert any("mandar a tu agente" in r for r in adj.reasons[sid])

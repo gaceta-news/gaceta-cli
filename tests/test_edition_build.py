@@ -216,6 +216,60 @@ def test_section_cap_is_30_and_rest_falls_to_otros(env):
     assert len(ids) == len(set(ids)) == 40
 
 
+def test_portada_rotates_and_rests_leaders(env):
+    """Six clear leaders repeat on the portada; after 3 consecutive editions
+    they must rest (out of the portada, still placed in sections), and repeats
+    carry an explicit reason. Deterministic fixture: stories written directly."""
+    conn = env.conn
+    conn.execute("INSERT OR IGNORE INTO readers (id, name, langs, created_at) "
+                 "VALUES (?, 'Test Reader', 'en', 0)", (env.cfg["id"],))
+    for n in range(6):  # leaders: 40 items + fresh → score ≈ 4.6, gap > max penalty
+        sid = f"lead{n}"
+        conn.execute(
+            "INSERT INTO stories (id, reader_id, title, status, privacy, first_seen, last_seen) "
+            "VALUES (?, ?, ?, 'settled', 'public', ?, ?)",
+            (sid, env.cfg["id"], f"Lead {n}", T0, T0 + 5 * DAY))
+        for k in range(40):
+            iid = f"l{n}i{k}"
+            conn.execute(
+                "INSERT INTO items (id, title, url, published, ingested_at, origin) "
+                "VALUES (?, ?, ?, ?, ?, 'sqlite')",
+                (iid, f"L {n} {k}", f"https://paper{n}.example/{k}", T0 + k, T0 + k))
+            conn.execute("INSERT INTO story_items (story_id, item_id) VALUES (?, ?)", (sid, iid))
+        conn.execute("INSERT INTO told (reader_id, story_id, at) VALUES (?, ?, ?)",
+                     (env.cfg["id"], sid, T0))
+    for n in range(2):  # challengers: single item, no told → score ≈ 1.6
+        sid = f"chal{n}"
+        conn.execute(
+            "INSERT INTO stories (id, reader_id, title, status, privacy, first_seen, last_seen) "
+            "VALUES (?, ?, ?, 'settled', 'public', ?, ?)",
+            (sid, env.cfg["id"], f"Chal {n}", T0 + DAY, T0 + 4 * DAY))
+        conn.execute(
+            "INSERT INTO items (id, title, url, published, ingested_at, origin) "
+            "VALUES (?, ?, ?, ?, ?, 'sqlite')",
+            (f"c{n}", f"C {n}", f"https://other{n}.example/", T0 + 4 * DAY, T0 + 4 * DAY))
+        conn.execute("INSERT INTO story_items (story_id, item_id) VALUES (?, ?)", (sid, f"c{n}"))
+    conn.commit()
+
+    leaders = {f"lead{n}" for n in range(6)}
+    days = [datetime.fromtimestamp(T0 + (6 + n) * DAY, tz=timezone.utc).date().isoformat()
+            for n in range(4)]
+    for n, day in enumerate(days):  # 3 days of stable leadership, then rotation
+        ed = build_edition(env.conn, env.cfg["id"], env.cfg, date_str=day,
+                           max_privacy="private", data_dir=env.data_dir,
+                           now=T0 + (6 + n) * DAY + 3600)
+        if n < 3:
+            assert set(ed["portada"]) == leaders  # repeat penalty < score gap
+            if n > 0:  # repeats are explained, not silent
+                assert all(any("portada" in r for r in ed["stories"][sid]["score_reasons"])
+                           for sid in leaders)
+        else:
+            assert set(ed["portada"]) == {"chal0", "chal1"}  # leaders all rest
+            for sid in leaders:
+                assert any("descansa" in r for r in ed["stories"][sid]["score_reasons"])
+                assert sid in _all_ids(ed)  # resting ≠ dropped: still in sections
+
+
 def story_of_item(conn, item_id):
     row = conn.execute(
         "SELECT si.story_id FROM story_items si JOIN items i ON i.id = si.item_id "

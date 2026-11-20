@@ -146,3 +146,34 @@ def test_author_affinity(env):
     ed = _build(env)
     reasons_a = _by_title(ed)["A one"][1]["score_reasons"]
     assert any("autor que no te convence" in r and "-0.5" in r for r in reasons_a)
+
+
+def test_reaction_decays_with_age(env):
+    _fixture(env)
+    ed0 = _build(env)
+    sid = _by_title(ed0)["B one"][0]
+    now = time.time()
+    # 4.5 days old: full for 2 days, then linear to 0 at 7 → half weight
+    env.conn.execute(
+        "INSERT INTO reactions (reader_id, story_id, kind, at, by_name) VALUES (?, ?, 'up', ?, ?)",
+        (env.cfg["id"], sid, int(now - 4.5 * DAY), "Test Reader"),
+    )
+    env.conn.commit()
+    ed = _build(env, now=int(now) + 60)
+    assert any("👍" in r and "+1.0" in r for r in _by_title(ed)["B one"][1]["score_reasons"])
+
+
+def test_old_reaction_fades_entirely(env):
+    _fixture(env)
+    ed0 = _build(env)
+    sid = _by_title(ed0)["B one"][0]
+    now = time.time()
+    env.conn.execute(
+        "INSERT INTO reactions (reader_id, story_id, kind, at, by_name) VALUES (?, ?, 'up', ?, ?)",
+        (env.cfg["id"], sid, int(now - 10 * DAY), "Test Reader"),
+    )
+    env.conn.commit()
+    ed = _build(env, now=int(now) + 60)
+    # no boost, no stale reason line: ranking is back to base order
+    assert _rank(ed, "B one") > _rank(ed, "A one")
+    assert not any("👍" in r for r in _by_title(ed)["B one"][1]["score_reasons"])

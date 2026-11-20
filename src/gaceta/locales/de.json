@@ -2,10 +2,52 @@
   "name": "Deutsch",
   "locale": "de",
   "dates": {
-    "weekdays": ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"],
-    "weekdays_short": ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"],
-    "months": ["Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August", "September", "Oktober", "November", "Dezember"],
-    "months_short": ["Jan", "Feb", "Mär", "Apr", "Mai", "Jun", "Jul", "Aug", "Sep", "Okt", "Nov", "Dez"],
+    "weekdays": [
+      "Montag",
+      "Dienstag",
+      "Mittwoch",
+      "Donnerstag",
+      "Freitag",
+      "Samstag",
+      "Sonntag"
+    ],
+    "weekdays_short": [
+      "Mo",
+      "Di",
+      "Mi",
+      "Do",
+      "Fr",
+      "Sa",
+      "So"
+    ],
+    "months": [
+      "Januar",
+      "Februar",
+      "März",
+      "April",
+      "Mai",
+      "Juni",
+      "Juli",
+      "August",
+      "September",
+      "Oktober",
+      "November",
+      "Dezember"
+    ],
+    "months_short": [
+      "Jan",
+      "Feb",
+      "Mär",
+      "Apr",
+      "Mai",
+      "Jun",
+      "Jul",
+      "Aug",
+      "Sep",
+      "Okt",
+      "Nov",
+      "Dez"
+    ],
     "long": "{weekday}, {day}. {month} {year}",
     "short": "{wd}, {day}. {mon}",
     "dmy": "{day}. {month} {year}"
@@ -79,7 +121,9 @@
     "verdict.seen": "Gesehen",
     "conditions": "Bedingungen",
     "conditions.stamp": "um {time}, nicht live",
-    "conditions.not_live": "nicht live"
+    "conditions.not_live": "nicht live",
+    "reason.portada_recent": "War schon auf Seite eins ({v})",
+    "reason.portada_rest": "War zuletzt oft auf Seite eins; heute Pause"
   },
   "js": {
     "src.follow_done": "✓ Du folgst {name} ab jetzt",

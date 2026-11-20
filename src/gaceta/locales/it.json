@@ -2,10 +2,52 @@
   "name": "Italiano",
   "locale": "it",
   "dates": {
-    "weekdays": ["lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato", "domenica"],
-    "weekdays_short": ["lun", "mar", "mer", "gio", "ven", "sab", "dom"],
-    "months": ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"],
-    "months_short": ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"],
+    "weekdays": [
+      "lunedì",
+      "martedì",
+      "mercoledì",
+      "giovedì",
+      "venerdì",
+      "sabato",
+      "domenica"
+    ],
+    "weekdays_short": [
+      "lun",
+      "mar",
+      "mer",
+      "gio",
+      "ven",
+      "sab",
+      "dom"
+    ],
+    "months": [
+      "gennaio",
+      "febbraio",
+      "marzo",
+      "aprile",
+      "maggio",
+      "giugno",
+      "luglio",
+      "agosto",
+      "settembre",
+      "ottobre",
+      "novembre",
+      "dicembre"
+    ],
+    "months_short": [
+      "gen",
+      "feb",
+      "mar",
+      "apr",
+      "mag",
+      "giu",
+      "lug",
+      "ago",
+      "set",
+      "ott",
+      "nov",
+      "dic"
+    ],
     "long": "{weekday} {day} {month} {year}",
     "short": "{wd} {day} {mon}",
     "dmy": "{day} {month} {year}"
@@ -79,7 +121,9 @@
     "verdict.seen": "Visto",
     "conditions": "Condizioni",
     "conditions.stamp": "alle {time}, non in diretta",
-    "conditions.not_live": "non in diretta"
+    "conditions.not_live": "non in diretta",
+    "reason.portada_recent": "Già in prima pagina ({v})",
+    "reason.portada_rest": "In prima pagina da varie edizioni; oggi riposa"
   },
   "js": {
     "src.follow_done": "✓ Seguirai {name}",

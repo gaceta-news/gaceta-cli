@@ -95,12 +95,13 @@ def test_state_carries_only_this_persons_saves(server):  # noqa: F811
 def test_owner_save_weight_and_label_household_ignored(env):
     _seed(env)
     rid = env.cfg["id"]
+    now = int(time.time())
     env.conn.execute("INSERT INTO saves (reader_id, by_name, story_id, origin, at) "
-                     "VALUES (?, ?, 'stT', 'gaceta', 1)", (rid, OWNER))
+                     "VALUES (?, ?, 'stT', 'gaceta', ?)", (rid, OWNER, now))
     env.conn.execute("INSERT INTO saves (reader_id, by_name, story_id, origin, at) "
-                     "VALUES (?, 'Bob', 'stT', 'gaceta', 1)", (rid,))
+                     "VALUES (?, 'Bob', 'stT', 'gaceta', ?)", (rid, now))
     env.conn.commit()
-    adj = adjustments(env.conn, rid, env.cfg)
+    adj = adjustments(env.conn, rid, env.cfg, now=now)
     assert adj.delta.get("stT") == taste.KIND_WEIGHTS["save"]   # Bob's save doesn't steer
     assert "Le diste 'Guardar' (1 vez, +3.0)" in adj.reasons["stT"]
 

@@ -277,6 +277,36 @@ def _story_media(conn: sqlite3.Connection, story_id: str) -> tuple[list[dict], d
 
 SETTLED_AFTER_DAYS = 4
 
+# Front-page rotation: a story that already led recent editions needs more score
+# to lead again (most recent prior edition first). A genuinely developing story
+# (new coverage raises its base score) can still earn its way back — but after
+# leading PORTADA_REST_AFTER consecutive editions it must rest: out of the
+# portada for this edition, still placed in its section.
+PORTADA_REPEAT_WEIGHTS = (1.5, 0.75, 0.4)
+PORTADA_REST_AFTER = 3
+
+
+def _recent_portada(conn: sqlite3.Connection, reader_id: str,
+                    built_ts: int) -> tuple[dict[str, float], set[str]]:
+    """(per-story penalty, stories that must rest) for leading recent editions."""
+    penalty: dict[str, float] = {}
+    streak: dict[str, int] = {}
+    rows = conn.execute(
+        "SELECT path FROM editions WHERE reader_id = ? AND built_at < ? "
+        "ORDER BY built_at DESC LIMIT ?",
+        (reader_id, built_ts, len(PORTADA_REPEAT_WEIGHTS)),
+    ).fetchall()
+    for w, row in zip(PORTADA_REPEAT_WEIGHTS, rows):
+        try:
+            prev = json.loads(Path(row["path"]).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue  # missing/corrupt snapshot: rotation simply doesn't apply
+        for sid in prev.get("portada") or []:
+            penalty[sid] = penalty.get(sid, 0.0) + w
+            streak[sid] = streak.get(sid, 0) + 1
+    rest = {sid for sid, n in streak.items() if n >= PORTADA_REST_AFTER}
+    return penalty, rest
+
 
 def edition_status(stored: str | None, n_items: int, last_seen: int | None, end: int) -> str:
     """Status shown in the edition. 'corrected' (set by the editor) always wins.
@@ -422,7 +452,7 @@ def build_edition(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
         base, reasons = _score_and_reasons(s, end, sites=sites, lang=lang)
         s["_score"], s["_base"], s["_reasons"] = base, base, reasons
     # taste steering: the owner's reactions only (editor.taste); hidden stories drop out
-    adj = taste.adjustments(conn, reader_id, cfg, items_by_story)
+    adj = taste.adjustments(conn, reader_id, cfg, items_by_story, now=built_ts)
     if adj.hidden:
         rows = [s for s in rows if s["id"] not in adj.hidden]
     for s in rows:
@@ -431,7 +461,25 @@ def build_edition(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
             s["_reasons"] = s["_reasons"] + adj.reasons.get(s["id"], [])
     rows.sort(key=lambda s: s["_score"], reverse=True)
 
-    portada = [s["id"] for s in rows[:PORTADA_SIZE]]
+    # front-page rotation: penalize stories that already led recent editions, so
+    # the portada shows what's NEW, not what scored high yesterday (novelty fix)
+    portada_pen, must_rest = _recent_portada(conn, reader_id, built_ts)
+    if portada_pen:
+        for s in rows:
+            if s["id"] in must_rest:
+                s["_reasons"] = s["_reasons"] + [i18n.t(lang, "reason.portada_rest")]
+            else:
+                p = portada_pen.get(s["id"])
+                if p:
+                    s["_reasons"] = s["_reasons"] + [
+                        i18n.t(lang, "reason.portada_recent", v=f"-{p:.1f}")]
+        front_rows = sorted(
+            (s for s in rows if s["id"] not in must_rest),
+            key=lambda s: s["_score"] - portada_pen.get(s["id"], 0.0), reverse=True)
+    else:
+        front_rows = rows
+
+    portada = [s["id"] for s in front_rows[:PORTADA_SIZE]]
     # instrument (roadmap 11c): how much taste moved the portada vs base score
     # alone. Both rankings are over the same post-hide rows; the base ranking
     # re-sorts by the score each story had before the owner's reactions.

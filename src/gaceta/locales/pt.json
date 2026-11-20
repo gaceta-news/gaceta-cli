@@ -2,10 +2,52 @@
   "name": "Português",
   "locale": "pt",
   "dates": {
-    "weekdays": ["segunda-feira", "terça-feira", "quarta-feira", "quinta-feira", "sexta-feira", "sábado", "domingo"],
-    "weekdays_short": ["seg", "ter", "qua", "qui", "sex", "sáb", "dom"],
-    "months": ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"],
-    "months_short": ["jan", "fev", "mar", "abr", "mai", "jun", "jul", "ago", "set", "out", "nov", "dez"],
+    "weekdays": [
+      "segunda-feira",
+      "terça-feira",
+      "quarta-feira",
+      "quinta-feira",
+      "sexta-feira",
+      "sábado",
+      "domingo"
+    ],
+    "weekdays_short": [
+      "seg",
+      "ter",
+      "qua",
+      "qui",
+      "sex",
+      "sáb",
+      "dom"
+    ],
+    "months": [
+      "janeiro",
+      "fevereiro",
+      "março",
+      "abril",
+      "maio",
+      "junho",
+      "julho",
+      "agosto",
+      "setembro",
+      "outubro",
+      "novembro",
+      "dezembro"
+    ],
+    "months_short": [
+      "jan",
+      "fev",
+      "mar",
+      "abr",
+      "mai",
+      "jun",
+      "jul",
+      "ago",
+      "set",
+      "out",
+      "nov",
+      "dez"
+    ],
     "long": "{weekday}, {day} de {month} de {year}",
     "short": "{wd}, {day} {mon}",
     "dmy": "{day} de {month} de {year}"
@@ -79,7 +121,9 @@
     "verdict.seen": "Visto",
     "conditions": "Condições",
     "conditions.stamp": "às {time}, não ao vivo",
-    "conditions.not_live": "não ao vivo"
+    "conditions.not_live": "não ao vivo",
+    "reason.portada_recent": "Já esteve na primeira página ({v})",
+    "reason.portada_rest": "Liderou as primeiras páginas recentes; hoje descansa"
   },
   "js": {
     "src.follow_done": "✓ Você vai seguir {name}",

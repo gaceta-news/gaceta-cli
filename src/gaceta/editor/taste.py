@@ -23,6 +23,7 @@ Every non-zero adjustment produces one short Spanish reason (score_reasons).
 from __future__ import annotations
 
 import sqlite3
+import time
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -42,6 +43,20 @@ AUTHOR_NEG_STEP, AUTHOR_NEG_CAP = 0.5, 1.5
 AUTHOR_POS_STEP, AUTHOR_POS_CAP = 0.3, 1.0
 
 
+STORY_FULL, STORY_ZERO = 2.0, 7.0    # direct boosts fade inside a week
+TASTE_FULL, TASTE_ZERO = 7.0, 28.0   # topic/author affinity lasts a month
+
+
+def _freshness(at: int, now: float, full_days: float, zero_days: float) -> float:
+    """1.0 while the reaction is fresh, linear to 0 at zero_days. A reaction is
+    taste, not a standing order: 'more like this' steers hard for days, then the
+    story has to earn its front-page spot on its own news value again."""
+    age = max(0.0, (now - at) / 86400.0)
+    if age <= full_days:
+        return 1.0
+    return max(0.0, (zero_days - age) / (zero_days - full_days))
+
+
 @dataclass
 class Adjustment:
     hidden: set[str] = field(default_factory=set)
@@ -55,14 +70,14 @@ class Adjustment:
 
 def _owner_reactions(conn: sqlite3.Connection, reader_id: str, owner_name: str) -> list[sqlite3.Row]:
     return conn.execute(
-        "SELECT story_id, kind FROM reactions "
+        "SELECT story_id, kind, at FROM reactions "
         "WHERE reader_id = ? AND story_id IS NOT NULL "
         "AND (by_name IS NULL OR lower(by_name) = lower(?)) "
         # handing a story to your agent (schema v8) is the strongest "this matters"
-        "UNION ALL SELECT story_id, 'agent' AS kind FROM agent_sends "
+        "UNION ALL SELECT story_id, 'agent' AS kind, at FROM agent_sends "
         "WHERE reader_id = ? AND lower(by_name) = lower(?) "
         # the owner saving a story (schema v9, local) is the strongest positive
-        "UNION ALL SELECT story_id, 'save' AS kind FROM saves "
+        "UNION ALL SELECT story_id, 'save' AS kind, at FROM saves "
         "WHERE reader_id = ? AND story_id IS NOT NULL AND removed_at IS NULL "
         "AND origin = 'gaceta' AND lower(by_name) = lower(?)",
         (reader_id, owner_name, reader_id, owner_name, reader_id, owner_name),
@@ -121,15 +136,18 @@ def _cos(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def adjustments(conn: sqlite3.Connection, reader_id: str, cfg: dict,
-                items_by_story: dict[str, list] | None = None) -> Adjustment:
+                items_by_story: dict[str, list] | None = None,
+                now: float | None = None) -> Adjustment:
     """Owner-reaction adjustments for the reader's candidate stories.
 
     items_by_story maps story_id → member item rows (as built in edition.build);
     when omitted, similarity/author signals are skipped (story-level still applies).
+    Reactions decay with age (_freshness): direct boosts last days, affinity weeks.
     """
     adj = Adjustment()
     lang = i18n.reader_lang(cfg)
     owner_name = str(cfg.get("name") or reader_id)
+    ts = time.time() if now is None else float(now)
     reactions = _owner_reactions(conn, reader_id, owner_name)
     if not reactions:
         return adj
@@ -138,22 +156,31 @@ def adjustments(conn: sqlite3.Connection, reader_id: str, cfg: dict,
         if r["kind"] == "hide":
             adj.hidden.add(r["story_id"])
 
-    # --- story level
-    per_story: dict[str, dict[str, float]] = {}
+    # --- story level (direct boosts decay fastest: STORY_FULL → STORY_ZERO days)
+    # per_story: sid -> kind -> [direct_weight, taste_weight, count]
+    per_story: dict[str, dict[str, list[float]]] = {}
     for r in reactions:
         w = KIND_WEIGHTS.get(r["kind"])
         if w is None:
             continue
+        direct = 0.0 if r["kind"] == "open" else w * _freshness(r["at"], ts, STORY_FULL, STORY_ZERO)
+        taste = w * _freshness(r["at"], ts, TASTE_FULL, TASTE_ZERO)
         kinds = per_story.setdefault(r["story_id"], {})
-        kinds[r["kind"]] = kinds.get(r["kind"], 0.0) + w
+        if r["kind"] in kinds:
+            kinds[r["kind"]][0] += direct
+            kinds[r["kind"]][1] += taste
+            kinds[r["kind"]][2] += 1
+        else:
+            kinds[r["kind"]] = [direct, taste, 1.0]
     for sid, kinds in per_story.items():
-        for kind, w in sorted(kinds.items(), key=lambda kv: -abs(kv[1])):
+        for kind, (direct, _taste, n) in sorted(kinds.items(), key=lambda kv: -abs(kv[1][0])):
             if kind == "open":
                 continue  # 'open' steers similarity only, never the story itself
-            n = abs(w) / KIND_WEIGHTS[kind]
+            if abs(direct) < 0.05:
+                continue  # fully faded reaction: no boost, no stale reason line
             word = i18n.t(lang, "taste.times", 2 if n > 1.5 else 1)
-            adj.add(sid, w, i18n.t(lang, "taste.gave", label=kind_label(lang, kind),
-                                   count=f"{n:.0f}", times=word, v=f"{w:+.1f}"))
+            adj.add(sid, direct, i18n.t(lang, "taste.gave", label=kind_label(lang, kind),
+                                       count=f"{n:.0f}", times=word, v=f"{direct:+.1f}"))
 
     # --- author affinity (over reacted stories' authors; applied to candidates)
     authors_by_story = _story_authors(conn, [r["story_id"] for r in reactions])
@@ -204,8 +231,8 @@ def adjustments(conn: sqlite3.Connection, reader_id: str, cfg: dict,
                         continue
                     sim = _cos(c, rc)
                     if sim > SIM_FLOOR:
-                        transfer += sum(per_story[rsid].values()) * (sim - SIM_FLOOR) / SIM_SPAN
-                        ow = per_story[rsid].get("open", 0.0)
+                        transfer += sum(v[1] for v in per_story[rsid].values()) * (sim - SIM_FLOOR) / SIM_SPAN
+                        ow = per_story[rsid].get("open", [0.0, 0.0, 0.0])[1]
                         if ow > 0:
                             open_part += ow * (sim - SIM_FLOOR) / SIM_SPAN
                 transfer = max(-SIM_CAP, min(SIM_CAP, transfer))

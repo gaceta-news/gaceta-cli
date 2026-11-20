@@ -2,10 +2,52 @@
   "name": "Français",
   "locale": "fr",
   "dates": {
-    "weekdays": ["lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi", "dimanche"],
-    "weekdays_short": ["lun", "mar", "mer", "jeu", "ven", "sam", "dim"],
-    "months": ["janvier", "février", "mars", "avril", "mai", "juin", "juillet", "août", "septembre", "octobre", "novembre", "décembre"],
-    "months_short": ["janv", "févr", "mars", "avr", "mai", "juin", "juil", "août", "sept", "oct", "nov", "déc"],
+    "weekdays": [
+      "lundi",
+      "mardi",
+      "mercredi",
+      "jeudi",
+      "vendredi",
+      "samedi",
+      "dimanche"
+    ],
+    "weekdays_short": [
+      "lun",
+      "mar",
+      "mer",
+      "jeu",
+      "ven",
+      "sam",
+      "dim"
+    ],
+    "months": [
+      "janvier",
+      "février",
+      "mars",
+      "avril",
+      "mai",
+      "juin",
+      "juillet",
+      "août",
+      "septembre",
+      "octobre",
+      "novembre",
+      "décembre"
+    ],
+    "months_short": [
+      "janv",
+      "févr",
+      "mars",
+      "avr",
+      "mai",
+      "juin",
+      "juil",
+      "août",
+      "sept",
+      "oct",
+      "nov",
+      "déc"
+    ],
     "long": "{weekday} {day} {month} {year}",
     "short": "{wd} {day} {mon}",
     "dmy": "{day} {month} {year}"
@@ -79,7 +121,9 @@
     "verdict.seen": "Vu",
     "conditions": "Conditions",
     "conditions.stamp": "à {time}, pas en direct",
-    "conditions.not_live": "pas en direct"
+    "conditions.not_live": "pas en direct",
+    "reason.portada_recent": "Déjà à la une ({v})",
+    "reason.portada_rest": "En une depuis plusieurs éditions ; au repos aujourd’hui"
   },
   "js": {
     "src.follow_done": "✓ Tu suivras {name}",
