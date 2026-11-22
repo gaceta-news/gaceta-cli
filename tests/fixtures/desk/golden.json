@@ -1,0 +1,27 @@
+{
+  "items": [
+    "gaz-4127-arav-117",
+    "anuv-0847",
+    "vmp-0411",
+    "her-1129",
+    "pul-0563",
+    "ledger-2026-111",
+    "gaz-4129-arev-098",
+    "vmp-0412"
+  ],
+  "clusters": [
+    [
+      "gaz-4127-arav-117",
+      "anuv-0847",
+      "vmp-0411",
+      "her-1129",
+      "pul-0563",
+      "ledger-2026-111"
+    ],
+    [
+      "gaz-4129-arev-098",
+      "vmp-0412"
+    ]
+  ],
+  "note": "Ideal clustering for gaceta evals (pairwise + B-cubed): one material decision with its five repeats as one story; the similar unrelated event as a second story. Internal file — keep beside oracle.json, never ship with the blind packet."
+}

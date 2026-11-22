@@ -1,0 +1,49 @@
+{
+  "schema": "gaceta-packaging-catalog/1",
+  "version_source": "src/gaceta/__init__.py",
+  "package": {
+    "name": "gaceta",
+    "summary": "A personal newspaper edited for one reader: stories, not articles; sources on every claim.",
+    "python": ">=3.12",
+    "license": "AGPL-3.0-only",
+    "repo": "https://github.com/gaceta-news/gaceta-cli",
+    "issues": "https://github.com/gaceta-news/gaceta-cli/issues",
+    "install_command": "uv tool install git+https://github.com/gaceta-news/gaceta-cli@v{VERSION}",
+    "uninstall_command": "uv tool uninstall gaceta",
+    "tag": "v{VERSION}"
+  },
+  "skill": {
+    "name": "gaceta",
+    "formerly": "gaceta-public-reader",
+    "description": "Find what changed in stories from the reader's feeds.",
+    "codex_description": "Find what changed in stories from the reader's feeds. Read-only lookup over a public-only gaceta edition export: stories with their sources, and a what-changed-since-your-baseline brief. Do not use for summarizing a single article with no reader export; never runs owner/write commands.",
+    "hermes_category": "research",
+    "author": "Gaceta News (gaceta-news)",
+    "license": "AGPL-3.0-only",
+    "platforms": ["linux", "macos", "windows"],
+    "tags": ["news", "feeds", "reading", "change-tracking", "citations"]
+  },
+  "codex_plugin": {
+    "name": "gaceta",
+    "description": "Read-only lookup of a gaceta reader's public edition export: stories with their sources, and a what-changed-since-your-baseline brief. Skills only: no MCP server, no hooks, no network.",
+    "marketplace_name": "gaceta-news",
+    "category": "Productivity"
+  },
+  "runtime_commands": ["edition", "story", "since"],
+  "links": {
+    "repo": "https://github.com/gaceta-news/gaceta-cli",
+    "agent_docs": "docs/agent/README.md",
+    "desk_path": "src/gaceta/assets/desk/index.html",
+    "desk_status": "bilingual demo desk from the desk workstream; ships as a wheel asset — published URL pinned at release",
+    "demo_generator": "docs/agent/demo/make_demo_export.py",
+    "recipe_preview_status": "portable recipe (gaceta recipe export/inspect/import) is a parallel candidate (P2), not part of this candidate; the landing page links it once merged",
+    "trial_status": "finite trial (gaceta trial preview/start/...) is a parallel candidate (P3), not part of this candidate; the landing page links it once merged"
+  },
+  "tested_with": {
+    "scope_note": "Packaging and offline demo smoke only. Not discovery, not configured usage, not reader retention — those are separate (P5) evidence and are not claimed here.",
+    "candidate": "gaceta {VERSION} (P4 beta candidate; the v-tag is cut at release review — published 0.2.x tags predate these features, so 0.2.0 is not a valid pin for them)",
+    "codex_cli": "codex-cli 0.171.0 — stock `codex plugin marketplace add` + `codex plugin list` on a sandboxed CODEX_HOME; no experimental features or adapters enabled",
+    "hermes_cli": "Hermes Agent v0.23.2 — packaged skill validated against the stock skills conventions (frontmatter, layout, description limit); registry/hub install is exercised only once the release source is public",
+    "python": "3.12 (floor of requires-python)"
+  }
+}

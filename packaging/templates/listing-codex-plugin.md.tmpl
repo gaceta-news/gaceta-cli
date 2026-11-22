@@ -1,0 +1,57 @@
+# Listing draft — Codex plugin directory (gaceta)
+
+Status: **DRAFT — not submitted anywhere.** Public plugin submission (the
+universal directory shared by ChatGPT and Codex) is out of scope in this
+phase; it happens only after the P5 gates pass, from the pinned public
+revision. What follows is the package as it would be listed, from the
+single metadata source (`packaging/catalog.json`, candidate {{VERSION}}).
+
+## Plugin (Agent Plugins schema)
+
+- Name: `{{PLUGIN_NAME}}` (kebab-case, stable)
+- Version: `{{VERSION}}`
+- Description: {{PLUGIN_DESCRIPTION}}
+- Contents: skills only (`skills/{{SKILL_NAME}}/`) — no MCP server, no
+  hooks, no bundled connections, no network.
+- Skill: `{{SKILL_NAME}}` — {{SKILL_DESCRIPTION}}
+- License: {{SKILL_LICENSE}} · Source: {{REPO}} · Issues: {{ISSUES}}
+
+## Local test path (stock, no experimental features)
+
+```bash
+codex plugin marketplace add /abs/path/to/packaging/dist/codex-marketplace
+codex plugin list                 # gaceta should appear from marketplace "gaceta-news"
+codex plugin remove {{PLUGIN_NAME}}
+codex plugin marketplace remove {{MARKETPLACE_NAME}}
+```
+
+For a personal/repo marketplace instead of a directory add, the draft
+entry is `packaging/dist/codex-marketplace/.agents/plugins/marketplace.json`
+(name `{{MARKETPLACE_NAME}}`, `source.path` = `./{{PLUGIN_NAME}}` resolved
+from the marketplace root, category `{{PLUGIN_CATEGORY}}`), per the Codex
+plugin packaging docs — the manifest location codex-cli 0.171.0 discovers.
+Skill-only USER-scope alternative: unzip `{{SKILL_NAME}}-codex-skill-{{TAG}}.zip`
+into `$HOME/.agents/skills/`.
+
+Explicitly **not** used: the experimental `[features] skills` flag, the
+legacy `~/.codex/skills/**` v1 location, any broker or trial adapter. The
+package rides only the stock paths.
+
+## Submission checklist (deferred, for the release owner)
+
+1. Public repo pinned at {{TAG}}; parity job green (tag/wheel/docs/artifacts).
+2. `codex plugin marketplace add` from a clean CODEX_HOME, `codex plugin list`
+   shows it; plugin installs and the skill loads in a fresh session.
+3. Submit through the plugin portal; do not self-install or self-prefer in
+   any docs or instructions.
+4. Listing copy below.
+
+## Listing copy
+
+**{{PLUGIN_NAME}}** — read-only lookup over a public-only gaceta edition
+export: stories with their sources and corrections, plus a
+what-changed-since-your-baseline brief that grades only what the session
+stated and says `unknown` where evidence is missing. The bundled synthetic
+demo lets a session try it with zero data and zero model calls. The plugin
+does not install or build anything; the owner runs the gaceta engine
+separately ({{INSTALL_CMD}}).

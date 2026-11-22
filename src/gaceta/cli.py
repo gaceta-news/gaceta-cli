@@ -1,4 +1,4 @@
-"""gaceta CLI: init, ingest, stats, embed, cluster, write, eval."""
+"""gaceta CLI: init, ingest, stats, embed, cluster, write, eval, trial."""
 from __future__ import annotations
 
 import argparse
@@ -585,8 +585,331 @@ def cmd_eval_clustering(args) -> int:
     return 0
 
 
+def cmd_agent(args) -> int:
+    """`gaceta agent …`: the public agent surface (agent.py for the contract).
+
+    export = owner side (reads the day's PUBLIC edition snapshot and the
+    paper's own version evidence, writes the isolated export). receipt =
+    owner side too, but opt-in and consent-shaped: one person's own seen
+    mark for one public story becomes their baseline receipt on stdout.
+    edition/story/since = agent side: one export file, read-only, fail
+    closed on private/stale/unknown/foreign content; no marks, no writes.
+    `since` answers the launch question from the caller's own baseline file.
+    """
+    import json
+    from pathlib import Path
+
+    from . import agent as agent_mod
+
+    if args.action == "export":
+        try:
+            reader = agent_mod.validate_reader_id(args.reader)
+            cfg = config.load_reader(reader)
+            conn = db.connect(_db_path())
+            try:
+                db.init(conn)
+                export, dated, current = agent_mod.export_for_date(
+                    config.data_dir(), reader, cfg, date_str=args.date, conn=conn)
+            finally:
+                conn.close()
+        except (agent_mod.ExportError, ValueError, OSError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        ed = export["edition"]
+        print(f"agent export reader={reader} date={ed['date']}: "
+              f"{len(export['stories'])} public stories → {dated} (and {current})")
+        return 0
+
+    if args.action == "receipt":
+        # owner side, opt-in: ONE person's own seen mark for ONE public
+        # story → the baseline receipt the existing since path accepts.
+        # SELECTs only; gaceta writes nothing — stdout is the receipt.
+        try:
+            reader = agent_mod.validate_reader_id(args.reader)
+            conn = db.connect(_db_path())
+            try:
+                receipt = agent_mod.derive_receipt(
+                    conn, reader, args.by, args.story)
+            finally:
+                conn.close()
+        except (agent_mod.ExportError, OSError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        by = str(args.by).strip()
+        if receipt["status"] == "known":
+            state = (f"verified → write-up version {receipt['version']} — this "
+                     f"is {by}'s own memory: hand it to them, never into the "
+                     "public export")
+        else:
+            state = f"unknown — {receipt['reason']}"
+        print(f"agent receipt reader={reader} by={by} story={args.story}: "
+              f"{state}", file=sys.stderr)
+        print(json.dumps(agent_mod.receipt_baseline(receipt),
+                         ensure_ascii=False, indent=2))
+        return 0
+
+    # agent side: read-only lookup; the database is never opened
+    try:
+        reader = agent_mod.validate_reader_id(args.reader)
+        path = (Path(args.path) if args.path
+                else agent_mod.current_export_path(config.data_dir(), reader))
+        export = agent_mod.load_export(
+            path, reader=reader,
+            max_age_hours=(args.max_age_hours if args.max_age_hours is not None
+                           else agent_mod.DEFAULT_MAX_AGE_HOURS))
+        if args.action == "edition":
+            view = agent_mod.edition_view(export)
+        elif args.action == "story":
+            view = agent_mod.story_view(export, args.id)
+        else:
+            baseline = agent_mod.load_baseline(args.baseline, reader=reader,
+                                               export=export)
+            view = agent_mod.since_view(export, baseline)
+    except agent_mod.ExportError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+
+    print(json.dumps(view, ensure_ascii=False, indent=2))
+    return 0
+
+
+
+def _package_version() -> str:
+    """The one version number this CLI reports (release check: tag/wheel/CLI parity)."""
+    from . import __version__
+    return __version__
+
+
+def _trial_print_state(rep: dict) -> None:
+    print(f"trial {rep['id']} — {rep['state']} (started {rep['start_day']})")
+    if rep["expired"]:
+        print(f"  expired: the seven-day window {rep['start_day']}..{rep['last_day']} "
+              "ended; no catchup")
+    else:
+        print(f"  day {rep['day_number']} of {rep['days_total']} "
+              f"(window {rep['start_day']}..{rep['last_day']})")
+    today = rep["today"]
+    print(f"  run today ({today['day']}): {today['used']}/{today['cap']} spent")
+    print(f"  runs: {rep['runs_total']}/{rep['runs_cap']} spent, {rep['runs_left']} left "
+          "(no fourth run, on any day)")
+    totals = rep["totals"]
+    print(f"  history: {len(rep['interrupted'])} interrupted, "
+          f"{len(rep['failed'])} failed; fake-chat calls: {totals['llm_calls']} write + "
+          f"{totals['change_calls']} change (lifetime caps by construction: "
+          f"{totals['llm_calls_lifetime_cap']} write, "
+          f"{totals['change_calls_lifetime_cap']} change)")
+    if rep["lock"]:
+        print(f"  lock: pid {rep['lock']['pid']} "
+              f"({'STALE — a run was killed; --recover-lock to continue' if rep['lock']['stale'] else 'held — a run may be in progress'})")
+    for snap in rep["snapshots"]:
+        print(f"  snapshot: {snap}")
+
+
+def cmd_trial(args) -> int:
+    """`gaceta trial …`: the finite manual trial (p3; src/gaceta/trial.py for
+    the contract). preview/status are read-only; every write action prints its
+    plan and needs --yes (or an interactive 'yes') before anything is written."""
+    import time
+    from datetime import datetime
+
+    from . import trial as trial_mod
+
+    def confirm(plan: str) -> bool:
+        print(plan)
+        if getattr(args, "yes", False):
+            return True
+        if sys.stdin.isatty():
+            try:
+                return input("Proceed? type yes: ").strip().lower() == "yes"
+            except EOFError:
+                return False
+        print("no consent given (stdin is not interactive; pass --yes)", file=sys.stderr)
+        return False
+
+    base = config.data_dir()
+    now = time.time()
+    try:
+        if args.action == "preview":
+            rep = trial_mod.preview(base, getattr(args, "id", None), now=now)
+            if "start_would_create" in rep:      # no trial yet
+                print(f"no trial yet — nothing under {rep['root']}")
+                would = rep["start_would_create"]
+                print(f"start would create trial {would['id']} at {would['root']}")
+                for p in would["files"]:
+                    print(f"  {p}")
+                print(f"  bounds: {would['runs_per_day']} run/day, at most "
+                      f"{would['runs_total']} runs total, {would['days_total']} days, "
+                      "no scheduling, no catchup")
+                print(f"next: {rep['hint']}")
+            else:
+                _trial_print_state(rep)
+                if rep["would_run"] == "ok":
+                    print(f"next run: {rep['hint']}")
+                else:
+                    print(f"next run: refused — {rep['would_run']}")
+            return 0
+
+        if args.action == "status":
+            rep = trial_mod.status(base, getattr(args, "id", None), now=now)
+            _trial_print_state(rep)
+            return 0
+
+        if args.action == "start":
+            rep = trial_mod.start(base, getattr(args, "id", None), now=now,
+                                  confirm=confirm)
+            print(f"trial {rep['id']} started → {rep['root']}")
+            for p in rep["created"]:
+                print(f"  wrote {p}")
+            print(f"  bounds: {rep['runs_per_day']} run per day, at most "
+                  f"{rep['runs_total']} runs total, window "
+                  f"{rep['start_day']}..{rep['last_day']} ({rep['days_total']} days, "
+                  "then expired; no fourth run, no catchup, no scheduling)")
+            print(f"next: gaceta trial run --yes")
+            return 0
+
+        if args.action == "run":
+            rep = trial_mod.run(
+                base, getattr(args, "id", None), now=now, confirm=confirm,
+                max_llm_calls=getattr(args, "max_llm_calls", trial_mod.DEFAULT_MAX_LLM_CALLS),
+                max_change_calls=getattr(args, "max_change_calls", trial_mod.DEFAULT_MAX_CHANGE_CALLS),
+                recover_lock=getattr(args, "recover_lock", False))
+            r, o = rep["run"], rep["outcome"]
+            print(f"trial {rep['id']} run {r['run']}/{trial_mod.MAX_RUNS_TOTAL} "
+                  f"on {r['day']}: {r['status']}")
+            print(f"  ingest {o['items']} new · embedded {o['embedded']} · "
+                  f"{o['stories']} stories · written {o['written']} "
+                  f"(fake-chat calls {o['llm_calls']}, "
+                  f"budget{' exhausted' if o['budget_exhausted'] else ' ok'})")
+            if o["change_note"]:
+                print(f"  changes: failed ({o['change_note']}); retried next run")
+            print(f"  edition {o['edition_stories']} stories → {o['snapshot']}")
+            if o["html"]:
+                print(f"  render → {o['html']}")
+            print(f"  run today: {rep['today']['used']}/{rep['today']['cap']}; "
+                  f"runs left: {rep['runs_left']}/{trial_mod.MAX_RUNS_TOTAL}")
+            if rep["runs_left"] == 0:
+                print(f"  {trial_mod.MAX_RUNS_TOTAL}/{trial_mod.MAX_RUNS_TOTAL} runs "
+                      "spent — the trial is run-terminal: keep or remove it "
+                      "(a fresh day buys nothing)")
+            return 0
+
+        if args.action == "stop":
+            rep = trial_mod.stop(base, getattr(args, "id", None), now=now,
+                                 confirm=confirm)
+            print(f"trial {rep['id']} stopped at "
+                  f"{datetime.fromtimestamp(rep['stopped_at']).strftime('%Y-%m-%d %H:%M')} "
+                  "(runs refuse; keep or remove when ready)")
+            return 0
+
+        if args.action == "keep":
+            rep = trial_mod.keep(base, getattr(args, "id", None), now=now,
+                                 confirm=confirm)
+            print(f"trial {rep['id']} kept — artifacts preserved under {rep['root']}; "
+                  "remove now requires --really")
+            return 0
+
+        if args.action == "remove":
+            rep = trial_mod.remove(base, getattr(args, "id", None), now=now,
+                                   confirm=confirm,
+                                   really=getattr(args, "really", False))
+            print(f"trial {rep['id']} removed (files deleted): {rep['removed']}")
+            return 0
+    except trial_mod.TrialError as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    return 2  # unknown action: argparse already rejects it
+
+def cmd_recipe(args) -> int:
+    """`gaceta recipe …`: safe desk-recipe sharing (recipe.py for the contract).
+
+    export = owner side: builds the recipe from the reader's config with an
+    explicit allowlist (--feed/--label; private by default), refuses anything
+    that is not a public web url or that touches a privacy canary, previews
+    before consent and writes only with --consent. inspect = anyone: the
+    safe parser on one file, read-only (no data dir, no db, no config).
+    import = recipient side: the same parser, then a brand-new isolated
+    reader — never an overwrite — written only with --consent.
+    """
+    from pathlib import Path
+
+    from . import recipe as recipe_mod
+
+    if args.action == "export":
+        try:
+            reader = recipe_mod.validate_slug(args.reader, what="reader id")
+            cfg = config.load_reader(reader)
+            recipe = recipe_mod.build_recipe(
+                cfg, feeds=args.feed, labels=args.label,
+                title=args.title, langs=args.langs, link=args.link)
+            out = (Path(args.out) if args.out else
+                   recipe_mod.default_export_path(config.data_dir(), reader, recipe))
+            if not str(out).lower().endswith(".json"):
+                raise recipe_mod.RecipeError(
+                    "--out must end in .json (a desk recipe is one JSON file)")
+        except (recipe_mod.RecipeError, OSError, ValueError) as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        print(recipe_mod.preview_recipe(recipe))
+        rss_feeds = ((cfg.get("sources") or {}).get("rss") or {}).get("feeds") or []
+        n_other = len(rss_feeds) - len(dict.fromkeys(args.feed))
+        m_other = len(cfg.get("sections") or []) - len(dict.fromkeys(args.label))
+        print(f"not shared: {n_other} other feed(s), {m_other} other label(s) "
+              "— private by default; pass --feed/--label to include them")
+        if not args.consent:
+            print(f"preview only — nothing written; re-run with --consent to write {out}")
+            return 0
+        try:
+            recipe_mod.write_recipe(recipe, out)
+        except OSError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        rb = recipe["recipe"]
+        print(f"recipe export reader={reader} title={rb['title']!r}: "
+              f"{len(rb['feeds'])} feed(s), {len(rb['labels'])} label(s)"
+              f"{', public-only renderer link' if 'link' in recipe else ''} → {out}")
+        return 0
+
+    if args.action == "inspect":
+        try:
+            recipe = recipe_mod.load_recipe(Path(args.path))
+        except recipe_mod.RecipeError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        print(recipe_mod.preview_recipe(recipe))
+        return 0
+
+    # import: recipient side; the recipe never touches an existing reader
+    try:
+        recipe = recipe_mod.load_recipe(Path(args.path))
+        target, toml_text = recipe_mod.plan_import(
+            recipe, config.data_dir(), args.new_reader)
+    except (recipe_mod.RecipeError, OSError, ValueError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    print(recipe_mod.preview_recipe(recipe))
+    print(f"import --as {args.new_reader}: creates a new isolated reader at {target} "
+          "(never an overwrite; independent of the sender)")
+    if not args.consent:
+        print("preview only — nothing written; re-run with --consent to create the reader")
+        return 0
+    try:
+        recipe_mod.commit_import(target, toml_text)
+    except (recipe_mod.RecipeError, OSError) as e:
+        print(str(e), file=sys.stderr)
+        return 2
+    rb = recipe["recipe"]
+    print(f"recipe import --as {args.new_reader}: {len(rb['feeds'])} feed(s), "
+          f"{len(rb['labels'])} label(s)"
+          f"{', public-only renderer link' if 'link' in recipe else ''} → {target}")
+    print(f"next: gaceta ingest rss --reader {args.new_reader} "
+          "(then embed, cluster, write, edition, render)")
+    return 0
+
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="gaceta")
+    p.add_argument("--version", action="version", version=_package_version())
     sub = p.add_subparsers(dest="cmd", required=True)
 
     pi = sub.add_parser("init", help="create data dir, gaceta.db and an example reader config")
@@ -698,6 +1021,118 @@ def main(argv=None) -> int:
     psv.add_argument("--port", type=int, default=8711, help="listen port (default 8711)")
     psv.set_defaults(func=cmd_serve)
     # --- end serve
+
+    # --- agent (public lookup): export (owner) + edition/story (read-only)
+    pag = sub.add_parser("agent", help="public-only agent surface: export + receipt (owner) + read-only lookup")
+    agsub = pag.add_subparsers(dest="action", required=True)
+    pax = agsub.add_parser("export", help="(owner) write the public-only export from the day's public edition")
+    pax.add_argument("--reader", required=True)
+    pax.add_argument("--date", default=None, help="edition date YYYY-MM-DD (default today)")
+    par = agsub.add_parser("receipt", help="(owner, opt-in) one person's own seen mark for one story → their baseline receipt (stdout)")
+    par.add_argument("--reader", required=True)
+    par.add_argument("--by", required=True,
+                     help="the person whose mark it is (their memory, their consent)")
+    par.add_argument("--story", required=True, help="the story id (public stories only)")
+    pae = agsub.add_parser("edition", help="(agent) list the export's public stories")
+    pae.add_argument("--reader", required=True, help="must match the export's bound reader")
+    pae.add_argument("--path", default=None,
+                     help="export file (default <data>/agent-exports/<reader>/current.json)")
+    pae.add_argument("--max-age-hours", type=float, default=None,
+                     help="refuse exports older than this (default 48)")
+    pas = agsub.add_parser("story", help="(agent) one story with its sources")
+    pas.add_argument("--reader", required=True, help="must match the export's bound reader")
+    pas.add_argument("--id", required=True, help="story id from `agent edition`")
+    pas.add_argument("--path", default=None,
+                     help="export file (default <data>/agent-exports/<reader>/current.json)")
+    pas.add_argument("--max-age-hours", type=float, default=None,
+                     help="refuse exports older than this (default 48)")
+    psi = agsub.add_parser("since", help="(agent) launch brief: what changed since your baseline")
+    psi.add_argument("--reader", required=True, help="must match the export's bound reader")
+    psi.add_argument("--baseline", default=None,
+                     help="your baseline JSON file ({reader, date, versions, provenance}), "
+                         "or - for stdin (default: no baseline — first launch)")
+    psi.add_argument("--path", default=None,
+                     help="export file (default <data>/agent-exports/<reader>/current.json)")
+    psi.add_argument("--max-age-hours", type=float, default=None,
+                     help="refuse exports older than this (default 48)")
+    pag.set_defaults(func=cmd_agent)
+    # --- end agent
+
+
+    # --- trial (p3): finite manual trial of the real pipeline, synthetic only
+    from . import trial as trial_mod
+
+    ptr = sub.add_parser("trial", help="finite manual trial: preview/start/run/status/stop/keep/remove (synthetic, offline, no scheduling)")
+    trsub = ptr.add_subparsers(dest="action", required=True)
+    trp = trsub.add_parser("preview", help="read-only: state, and what start/run would do")
+    trp.add_argument("--id", default=None, help="trial id (default: the active trial, else the newest)")
+    trs = trsub.add_parser("start", help="create a trial: synthetic reader, isolated db, fake models (consent)")
+    trs.add_argument("--id", default=None, help="id for the new trial (default: trial-<timestamp>)")
+    trs.add_argument("--yes", action="store_true", help="consent to the printed plan")
+    trr = trsub.add_parser("run", help="spend today's one run (1/day, ≤3 total) on a real pipeline pass (consent)")
+    trr.add_argument("--id", default=None, help="trial id (default: the active trial)")
+    trr.add_argument("--yes", action="store_true", help="consent to the printed plan")
+    trr.add_argument("--max-llm-calls", type=int, default=trial_mod.DEFAULT_MAX_LLM_CALLS,
+                     help=f"fake-chat call budget for write-ups (default {trial_mod.DEFAULT_MAX_LLM_CALLS}, cap {trial_mod.MAX_LLM_CALLS_CAP})")
+    trr.add_argument("--max-change-calls", type=int, default=trial_mod.DEFAULT_MAX_CHANGE_CALLS,
+                     help=f"fake-chat call budget for change notes (default {trial_mod.DEFAULT_MAX_CHANGE_CALLS}, cap {trial_mod.MAX_CHANGE_CALLS_CAP})")
+    trr.add_argument("--recover-lock", action="store_true",
+                     help="clear a stale lock left by a killed run (its slot stays spent)")
+    trst = trsub.add_parser("status", help="read-only report: slots, expiry, runs, lock")
+    trst.add_argument("--id", default=None, help="trial id (default: the active trial, else the newest)")
+    tro = trsub.add_parser("stop", help="end the trial's runs, final (consent)")
+    tro.add_argument("--id", default=None, help="trial id (default: the active trial)")
+    tro.add_argument("--yes", action="store_true", help="consent to the printed plan")
+    trk = trsub.add_parser("keep", help="preserve the trial's artifacts for the record (consent)")
+    trk.add_argument("--id", default=None, help="trial id (default: the active trial, else the newest)")
+    trk.add_argument("--yes", action="store_true", help="consent to the printed plan")
+    trrm = trsub.add_parser("remove", help="delete the trial and its files (consent; stop first; --really if kept)")
+    trrm.add_argument("--id", default=None, help="trial id (default: the active trial, else the newest)")
+    trrm.add_argument("--yes", action="store_true", help="consent to the printed plan")
+    trrm.add_argument("--really", action="store_true", help="required to remove a kept trial")
+    ptr.set_defaults(func=cmd_trial)
+    # --- end trial
+
+    # --- recipe: safe desk-recipe export/inspect/import
+    from .recipe import DEFAULT_TITLE as _RECIPE_DEFAULT_TITLE  # help text only
+
+    prc = sub.add_parser("recipe",
+                         help="share a desk setup: export (owner) / inspect / import a "
+                              "public-only recipe of feeds and labels")
+    rcsub = prc.add_subparsers(dest="action", required=True)
+    rex = rcsub.add_parser("export",
+                           help="(owner) write a recipe of EXPLICITLY selected public "
+                                "feeds and labels — private by default")
+    rex.add_argument("--reader", required=True)
+    rex.add_argument("--feed", action="append", default=[], metavar="SLUG",
+                     help="share this rss feed id (repeatable; nothing is shared "
+                          "unless you pass it)")
+    rex.add_argument("--label", action="append", default=[], metavar="ID",
+                     help="share this [[sections]] label (repeatable)")
+    rex.add_argument("--title", default=None,
+                     help=f"recipe title (default {_RECIPE_DEFAULT_TITLE!r})")
+    rex.add_argument("--langs", default=None,
+                     help='write-up languages to carry, e.g. "es,en" (default: none)')
+    rex.add_argument("--link", default=None,
+                     help="explicit public-only renderer link: https url of YOUR "
+                          "public paper (gaceta render --max-privacy public)")
+    rex.add_argument("--out", default=None,
+                     help="recipe path (default <data>/recipes/<reader>/<slug>.json)")
+    rex.add_argument("--consent", action="store_true",
+                     help="write the file; without it the command only previews")
+    rin = rcsub.add_parser("inspect", help="read-only preview of a recipe file (safe parser, no writes)")
+    rin.add_argument("path", help="the recipe JSON file")
+    rim = rcsub.add_parser("import",
+                           help="(recipient) create a NEW isolated reader from a "
+                                "recipe; never overwrites")
+    rim.add_argument("path", help="the recipe JSON file")
+    rim.add_argument("--as", required=True, dest="new_reader",
+                     help="the NEW reader id to create (must not exist)")
+    rim.add_argument("--consent", action="store_true",
+                     help="create the reader; without it the command only previews")
+    prc.set_defaults(func=cmd_recipe)
+    # --- end recipe
+
 
     args = p.parse_args(argv)
     return args.func(args)

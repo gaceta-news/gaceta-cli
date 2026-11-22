@@ -127,3 +127,69 @@ def test_data_rev_data_section_and_updated_line():
     del ed["built_at"]
     out = render(ed, "public")
     assert "Actualizada" not in out
+
+
+def test_coverage_dates_follow_source_publication_not_edition_or_ingest():
+    edition = load_edition()
+    edition["built_at"] = "2026-11-17T09:07:00-05:00"
+    edition["folio"] = {"code": "01", "window_end": "09:07"}
+    sid = edition["portada"][0]
+    story = edition["stories"][sid]
+    story["sources"] = [
+        {"url": "https://example.org/a", "published": "2026-11-15"},
+        {"url": "https://example.org/b", "published": "2026-11-17T02:30:00+00:00"},
+        {"url": "https://example.org/c", "added": 1794928000},
+    ]
+    story["last_seen"] = "2026-11-17"
+    out = render(edition, "private")
+    article = out.split(f'id="{sid}"', 1)[1].split("</article>", 1)[0]
+    assert ('Última fuente: <time datetime="2026-11-16">16 de noviembre de 2026</time>'
+            in article.split('<p class="summary">', 1)[0])
+    assert '<time datetime="2026-11-17T09:07:00-05:00">Actualizada 09:07</time>' in out
+    assert '<time datetime="2026-11-16">16 de noviembre de 2026</time>' in article.split('<footer', 1)[1]
+
+    story["sources"] = [{"published": "2026-11-15"}]
+    assert 'Publicado <time datetime="2026-11-15">' in render(edition, "private")
+    story["sources"] = [{"published": "not a date", "added": 1794928000}]
+    article = render(edition, "private").split(f'id="{sid}"', 1)[1].split("</article>", 1)[0]
+    assert 'class="coverage-date"' not in article
+
+
+def test_update_leads_with_change_and_only_uses_a_new_source_image():
+    edition = load_edition()
+    edition["built_at"] = "2026-11-17T12:00:00+00:00"
+    from datetime import datetime
+    built = int(datetime.fromisoformat(edition["built_at"]).timestamp())
+    sid = edition["portada"][0]
+    story = edition["stories"][sid]
+    story["summary"] = "El resumen completo"
+    story["history"] = [
+        {"at": built - 100000, "summary": "Antes"},
+        {"at": built - 90000, "what_changed": "Primera revisión"},
+        {"at": built - 900, "what_changed": "El concejo aprobó la medida <por un voto>"},
+    ]
+    old = "media/vieja.jpg"
+    new = "media/nueva.jpg"
+    story["media"] = [{"type": "image", "src": old}]
+    story["sources"] = [
+        {"thumb": old, "added": built - 100000, "published": "2026-11-15"},
+        {"thumb": old, "added": built - 100, "published": "2026-11-17"},
+        {"thumb": new, "added": built - 1100, "published": "2026-11-16"},
+        {"thumb": "media/futura.jpg", "added": built + 1, "published": "2026-11-18"},
+    ]
+
+    def article():
+        return render(edition, "private").split(f'id="{sid}"', 1)[1].split("</article>", 1)[0]
+
+    markup = article()
+    assert 'class="story-context"><summary>Leer el contexto</summary>' in markup
+    assert markup.index("Qué cambió") < markup.index("El resumen completo")
+    assert markup.count("&lt;por un voto&gt;") == 1
+    assert "Primera revisión" in markup.split('class="since-steps"', 1)[1]
+    assert "Antes" in markup.split('class="since-before"', 1)[1]
+    assert 'src="../media/nueva.jpg"' in markup.split('<header', 1)[0]
+    story["sources"].pop(2)
+    assert "vieja.jpg" not in article().split('<header', 1)[0]
+    story["history"][-1]["what_changed"] = None
+    assert 'class="story-update"' not in article()
+    assert 'src="../media/vieja.jpg"' in article().split('<header', 1)[0]

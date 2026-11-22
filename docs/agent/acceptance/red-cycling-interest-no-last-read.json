@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "kind": "gaceta.agent-export",
+  "reader": {
+    "id": "testreader",
+    "name": "Test Reader"
+  },
+  "edition": {
+    "date": "2023-11-21",
+    "built_at": "2026-11-19T23:21:47-05:00",
+    "folio_code": "75BE8A",
+    "stories_total": 6
+  },
+  "privacy": {
+    "max_level": "public"
+  },
+  "citation": {
+    "policy": "Sources are the only citable evidence: cite a source only for what it explicitly supports. The summary field is model-written text, never evidence. Links and model summaries are never promoted to 'confirmed' claims; if the sources do not support something, say so.",
+    "summary_origin": "model",
+    "confirmed_exists": false
+  },
+  "semantics": {
+    "published": "sources[].published and support[].published: when the OUTLET published the content. Never reading history; never used for 'since your baseline' comparisons.",
+    "trace": "first_seen/last_seen, sources[].added, versions[].written_at, corrections[].at: when the PAPER ingested, clustered or wrote something. Never reading history.",
+    "reading_history": "only your baseline (you stated it: your last-read edition date and the write-up versions you last saw). This surface holds no per-person marks and cannot know when anyone actually read anything.",
+    "comparisons": "every 'since your baseline' comparison uses your stated version or the paper's trace times; a source's published time is never compared."
+  },
+  "baseline": {
+    "reader": "testreader",
+    "date": null,
+    "versions": {}
+  },
+  "skipped_editions": null,
+  "skipped_editions_note": "unknown: your baseline states no edition date, so this surface cannot say which public editions you have no record of (trace times are never used as a stand-in for reading history)",
+  "updates": [
+    {
+      "story_id": "stOld",
+      "title": "Story Old",
+      "baseline": {
+        "claimed_version": null,
+        "status": "none_stated",
+        "reason": "your baseline states no version and no edition date for this story"
+      },
+      "current_version": 2,
+      "change": {
+        "status": "unknown",
+        "reason": "no baseline to compare — read the story and record its version and date in your baseline"
+      }
+    },
+    {
+      "story_id": "stDup",
+      "title": "Story Dup",
+      "baseline": {
+        "claimed_version": null,
+        "status": "none_stated",
+        "reason": "your baseline states no version and no edition date for this story"
+      },
+      "current_version": 2,
+      "change": {
+        "status": "unknown",
+        "reason": "no baseline to compare — read the story and record its version and date in your baseline"
+      }
+    },
+    {
+      "story_id": "stMiss",
+      "title": "Story Miss",
+      "baseline": {
+        "claimed_version": null,
+        "status": "none_stated",
+        "reason": "your baseline states no version and no edition date for this story"
+      },
+      "current_version": 2,
+      "change": {
+        "status": "unknown",
+        "reason": "no baseline to compare — read the story and record its version and date in your baseline"
+      }
+    },
+    {
+      "story_id": "stDrift",
+      "title": "Story Drift",
+      "baseline": {
+        "claimed_version": null,
+        "status": "none_stated",
+        "reason": "your baseline states no version and no edition date for this story"
+      },
+      "current_version": 1,
+      "change": {
+        "status": "unknown",
+        "reason": "no baseline to compare — read the story and record its version and date in your baseline"
+      }
+    },
+    {
+      "story_id": "stSame",
+      "title": "Story Same",
+      "baseline": {
+        "claimed_version": null,
+        "status": "none_stated",
+        "reason": "your baseline states no version and no edition date for this story"
+      },
+      "current_version": 1,
+      "change": {
+        "status": "unknown",
+        "reason": "no baseline to compare — read the story and record its version and date in your baseline"
+      }
+    },
+    {
+      "story_id": "stNew",
+      "title": "Story New",
+      "baseline": {
+        "claimed_version": null,
+        "status": "none_stated",
+        "reason": "your baseline states no version and no edition date for this story"
+      },
+      "current_version": null,
+      "change": {
+        "status": "unknown",
+        "reason": "no baseline to compare — read the story and record its version and date in your baseline"
+      }
+    }
+  ],
+  "approval": {
+    "state": "proposal",
+    "by": "reader",
+    "how": "accept by reading the cited sources, then record your own new baseline (this edition's date and each story's current version) for the next launch. The paper's own 'Visto' marks stay on the owner side; this surface never writes anything.",
+    "never": "no proposal here is 'confirmed'; links and model summaries are never promoted to 'confirmed' claims."
+  }
+}

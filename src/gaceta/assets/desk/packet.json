@@ -1,0 +1,191 @@
+{
+  "schema": 1,
+  "kind": "gaceta.desk-packet",
+  "packet_id": "desk-2026-11-16-18-en-es-v1",
+  "window": {
+    "start": "2026-11-16",
+    "end": "2026-11-18",
+    "days": 3,
+    "tz_offset": "-06:00"
+  },
+  "languages": [
+    "en",
+    "es"
+  ],
+  "counts": {
+    "documents": 8,
+    "by_language": {
+      "es": 5,
+      "en": 3
+    },
+    "by_day": {
+      "2026-11-16": 3,
+      "2026-11-17": 3,
+      "2026-11-18": 2
+    }
+  },
+  "documents": [
+    {
+      "id": "gaz-4127-arav-117",
+      "date": "2026-11-16",
+      "published": "2026-11-16T06:00:00-06:00",
+      "language": "es",
+      "kind": "gazette",
+      "outlet": "Gaceta Oficial de Valdora",
+      "url": "https://gazetavaldora.example/edicion-4127/resolucion-117-2026",
+      "title": "Resolución No. 117-2026 de la Autoridad Reguladora de Aguas de Valdora",
+      "subtitle": "Responsabilidad por el deterioro del acuífero de la Serranía del Toldo: plan de remediación en noventa días y multa de V$ 4.200.000.",
+      "body": [
+        "Vado Prieto, lunes 16 de noviembre de 2026. La Autoridad Reguladora de Aguas de Valdora (ARAV) resuelve en el expediente ARAV-EX-2025-0418 lo siguiente:",
+        "PRIMERO. Declarar a Compañía Minera Cerro Alto, S.A. responsable del deterioro del acuífero de la Serranía del Toldo, sector Vega Norte, por las concentraciones de arsénico y sulfatos registradas en los pozos de monitoreo desde marzo de 2026.",
+        "SEGUNDO. Ordenar a Compañía Minera Cerro Alto, S.A. la presentación de un plan de remediación integral del acuífero dentro de los noventa (90) días calendario siguientes a esta publicación.",
+        "TERCERO. Ordenar obras inmediatas de contención en el dique de relaves de la unidad minera Cerro Alto, bajo supervisión de la ARAV, con informes mensuales de avance.",
+        "CUARTO. Imponer a la responsable una multa de V$ 4.200.000, pagadera dentro de los treinta (30) días hábiles.",
+        "La resolución es de cumplimiento inmediato; contra ella procede recurso de reconsideración ante el Directorio de la ARAV dentro de los quince (15) días hábiles. Publíquese en la Gaceta Oficial de Valdora, Edición No. 4127."
+      ],
+      "gazette_ref": "Año CII, Edición No. 4127, lunes 16 de noviembre de 2026, página 3"
+    },
+    {
+      "id": "anuv-0847",
+      "date": "2026-11-16",
+      "published": "2026-11-16T18:05:00-06:00",
+      "language": "es",
+      "kind": "news",
+      "outlet": "Agencia de Noticias Unidas de Valdora",
+      "url": "https://anuv.example/despachos/0847",
+      "title": "La ARAV declara responsable a Compañía Minera Cerro Alto por el acuífero de la Serranía del Toldo",
+      "body": [
+        "La Autoridad Reguladora de Aguas de Valdora (ARAV) declaró este lunes a Compañía Minera Cerro Alto, S.A. responsable del deterioro del acuífero de la Serranía del Toldo, sector Vega Norte.",
+        "La Resolución No. 117-2026, publicada en la Gaceta Oficial de Valdora, impone una multa de V$ 4.200.000, exige un plan de remediación integral del acuífero dentro de los noventa (90) días calendario y ordena obras inmediatas de contención en el dique de relaves de la unidad minera Cerro Alto, con informes mensuales de avance.",
+        "La resolución es de cumplimiento inmediato; procede recurso de reconsideración ante el Directorio de la ARAV dentro de los quince (15) días hábiles. La empresa no emitió comentarios esta tarde."
+      ],
+      "original": {
+        "id": "gaz-4127-arav-117",
+        "language": "es",
+        "url": "https://gazetavaldora.example/edicion-4127/resolucion-117-2026"
+      }
+    },
+    {
+      "id": "vmp-0411",
+      "date": "2026-11-16",
+      "published": "2026-11-16T21:10:00-06:00",
+      "language": "en",
+      "kind": "news",
+      "outlet": "Valdora Morning Post",
+      "url": "https://valdoramorningpost.example/articles/0411",
+      "title": "Valdora water regulator finds Cerro Alto liable for aquifer damage, orders 90-day cleanup plan",
+      "body": [
+        "Valdora's water authority on Monday found Compañía Minera Cerro Alto, S.A. liable for degrading the Serranía del Toldo aquifer in the Vega Norte sector.",
+        "Resolution 117-2026, published in the official gazette, fines the company V$ 4.2 million and orders a comprehensive remediation plan for the aquifer within 90 days, plus immediate containment works at the Cerro Alto tailings dam under the regulator's supervision, with monthly progress reporting.",
+        "The resolution takes effect immediately; Compañía Minera Cerro Alto may seek reconsideration before the authority's board within 15 business days."
+      ],
+      "original": {
+        "id": "gaz-4127-arav-117",
+        "language": "es",
+        "url": "https://gazetavaldora.example/edicion-4127/resolucion-117-2026"
+      }
+    },
+    {
+      "id": "her-1129",
+      "date": "2026-11-17",
+      "published": "2026-11-17T07:30:00-06:00",
+      "language": "es",
+      "kind": "news",
+      "outlet": "El Heraldo de Valdora",
+      "url": "https://elheraldo.example/nacional/1129",
+      "title": "Noventa días para el plan de remediación del acuífero de la Serranía del Toldo",
+      "body": [
+        "La Resolución No. 117-2026 de la ARAV, publicada este lunes en la Gaceta Oficial de Valdora, declara a Compañía Minera Cerro Alto, S.A. responsable del deterioro del acuífero de la Serranía del Toldo, sector Vega Norte.",
+        "El instrumento impone una multa de V$ 4.200.000, exige el plan de remediación integral del acuífero dentro de los noventa (90) días calendario y ordena obras inmediatas de contención en el dique de relaves de la unidad minera Cerro Alto, bajo supervisión de la ARAV.",
+        "«Responsabilidad, remediación y plazo en un solo instrumento», resumió Helena Marsal, directora ejecutiva de la ARAV. La resolución es de cumplimiento inmediato y admite recurso de reconsideración dentro de los quince (15) días hábiles."
+      ],
+      "original": {
+        "id": "gaz-4127-arav-117",
+        "language": "es",
+        "url": "https://gazetavaldora.example/edicion-4127/resolucion-117-2026"
+      }
+    },
+    {
+      "id": "pul-0563",
+      "date": "2026-11-17",
+      "published": "2026-11-17T09:15:00-06:00",
+      "language": "es",
+      "kind": "news",
+      "outlet": "El Pulso Económico",
+      "url": "https://elpulso.example/empresas/0563",
+      "title": "Cerro Alto asume multa de V$ 4.200.000; la remediación del acuífero pesa más que la sanción",
+      "body": [
+        "La ARAV publicó este lunes la Resolución No. 117-2026 contra Compañía Minera Cerro Alto, S.A.: multa de V$ 4.200.000, plan de remediación integral del acuífero de la Serranía del Toldo dentro de los noventa (90) días calendario y obras inmediatas de contención en el dique de relaves.",
+        "Desde Ferrer & Linares estiman que el costo del plan de remediación superará la multa. La resolución es de cumplimiento inmediato; procede recurso de reconsideración ante el Directorio de la ARAV dentro de los quince (15) días hábiles."
+      ],
+      "original": {
+        "id": "gaz-4127-arav-117",
+        "language": "es",
+        "url": "https://gazetavaldora.example/edicion-4127/resolucion-117-2026"
+      }
+    },
+    {
+      "id": "ledger-2026-111",
+      "date": "2026-11-17",
+      "published": "2026-11-17T14:00:00-06:00",
+      "language": "en",
+      "kind": "analysis",
+      "outlet": "The Enforcement Ledger",
+      "url": "https://enforcementledger.example/notes/2026-111",
+      "title": "Resolution 117-2026: immediate effect, a 90-day clock and a 4.2 million fine",
+      "body": [
+        "Monday's gazette carried Resolution 117-2026 from the Autoridad Reguladora de Aguas de Valdora (ARAV), finding Compañía Minera Cerro Alto, S.A. liable for the degradation of the Serranía del Toldo aquifer.",
+        "Three features make the instrument consequential: it takes effect immediately upon publication, it starts a 90-day clock for the comprehensive remediation plan ordered for the aquifer, and it imposes a V$ 4.2 million fine on the company.",
+        "Containment works at the Cerro Alto tailings dam proceed under supervision, with monthly progress reporting until the remediation plan is approved. The company may seek reconsideration before the authority's board within 15 business days."
+      ],
+      "original": {
+        "id": "gaz-4127-arav-117",
+        "language": "es",
+        "url": "https://gazetavaldora.example/edicion-4127/resolucion-117-2026"
+      }
+    },
+    {
+      "id": "gaz-4129-arev-098",
+      "date": "2026-11-18",
+      "published": "2026-11-18T06:00:00-06:00",
+      "language": "es",
+      "kind": "gazette",
+      "outlet": "Gaceta Oficial de Valdora",
+      "url": "https://gazetavaldora.example/edicion-4129/resolucion-098-2026",
+      "title": "Resolución No. 098-2026 de la Autoridad Reguladora de Energía de Valdora",
+      "subtitle": "Sanción a Generadora Marbrisa, S.A. por la pluma de diésel en el polígono portuario de Puerto Gris; saneamiento en sesenta días.",
+      "body": [
+        "Vado Prieto, miércoles 18 de noviembre de 2026. En uso de sus atribuciones, el Directorio de la Autoridad Reguladora de Energía de Valdora (AREV), con fundamento en el expediente AREV-EX-2026-0107, adopta la siguiente decisión:",
+        "SANCIONAR a Generadora Marbrisa, S.A. por la fuga de diésel detectada en septiembre de 2026 en su terminal del polígono portuario de Puerto Gris, que afectó las aguas subterráneas del polígono.",
+        "La sancionada deberá presentar, en un plazo de sesenta (60) días calendario, un plan de saneamiento con medidas inmediatas de contención de la pluma de diésel, y abonar una sanción de V$ 2.750.000 dentro de los veinte (20) días hábiles.",
+        "La decisión rige a partir de esta publicación; los interesados pueden pedir revisión ante el propio Directorio en el término de diez (10) días hábiles. Insértese en la Gaceta Oficial de Valdora, Edición No. 4129."
+      ],
+      "gazette_ref": "Año CII, Edición No. 4129, miércoles 18 de noviembre de 2026, página 5"
+    },
+    {
+      "id": "vmp-0412",
+      "date": "2026-11-18",
+      "published": "2026-11-18T19:40:00-06:00",
+      "language": "en",
+      "kind": "news",
+      "outlet": "Valdora Morning Post",
+      "url": "https://valdoramorningpost.example/articles/0412",
+      "title": "Energy regulator fines Marbrisa 2.75 million valdoros over diesel plume at Puerto Gris",
+      "body": [
+        "Valdora's energy regulator on Wednesday fined Generadora Marbrisa, S.A. V$ 2.75 million after a diesel leak contaminated groundwater at the Puerto Gris port zone.",
+        "Resolution 098-2026, published in the official gazette, orders a cleanup plan within 60 days and immediate containment of the plume; Generadora Marbrisa may seek reconsideration before the energy board within 10 business days."
+      ],
+      "original": {
+        "id": "gaz-4129-arev-098",
+        "language": "es",
+        "url": "https://gazetavaldora.example/edicion-4129/resolucion-098-2026"
+      }
+    }
+  ],
+  "provenance": {
+    "generator": "make_desk_packet.py — deterministic, byte-identical replay",
+    "content": "Every outlet, person, company, regulator, currency, place and event is invented; hosts are reserved *.example names.",
+    "offline": "Local files only; the packet was built and renders without any network access.",
+    "license": "CC BY 4.0 — see NOTICE.md and CC-BY-4.0.txt in this directory."
+  }
+}

@@ -66,6 +66,17 @@ gaceta serve                           # optional: localhost server with working
 
 Fake models prove the plumbing but write nothing useful. For a real paper, see below.
 
+## A bounded trial, by hand (P3)
+
+Before touching real feeds you can watch the **real** pipeline run end to end,
+bounded and offline: `gaceta trial start --yes`, then `gaceta trial run --yes`
+— once per local day, at most three runs in total across the seven-day window
+(there is no fourth run, on any day). It builds a paper from a synthetic feed with the
+deterministic fake models — no network, no keys, nothing published — and every write
+asks for consent first. `preview`/`status` are read-only; `stop`/`keep`/`remove`
+close it out. See [docs/release/trial.md](docs/release/trial.md) for the full contract
+(run caps, expiry, durable reservations, crash accounting, offline-only limits).
+
 ## A real paper, fully local (no API keys)
 
 With [Ollama](https://ollama.com) running, pull an embedding model and a chat model:
@@ -195,10 +206,28 @@ A provider that fails or returns nothing is skipped; a number never blocks the p
 | `edition`, `render` | build an immutable edition snapshot and render it to HTML |
 | `serve` | localhost server with reactions (put a reverse proxy or a tailnet in front) |
 | `print` | one-file HTML/PDF edition, for readers without a device |
+| `trial` | finite manual run of the real pipeline: preview/start/run/status/stop/keep/remove — synthetic offline reader, fake models only, 1 run/day, ≤3 runs total, 7-day expiry, no scheduling ([docs/release/trial.md](docs/release/trial.md)) |
 | `feedback` | export the owner's verdicts for an upstream collector |
+| `agent` | public-only, read-only edition/story lookup and a since-you-last-read launch brief for agent sessions, plus an owner-side opt-in receipt of a person's own seen marks ([docs/agent/](docs/agent/README.md)) |
+| `recipe` | share a desk setup: export/inspect/import a public-only recipe of feeds and labels ([docs/recipe/](docs/recipe/README.md)) |
 | `stats`, `eval` | counts and clustering evals |
 
 Run `gaceta <command> --help` for options.
+
+## Desk recipes
+
+`gaceta recipe export --reader main --feed bbc-tech --label tech` writes a
+**desk recipe**: an inert JSON file carrying only the public web feed urls and
+section labels you explicitly selected — private by default, so nothing rides
+along unless you pass `--feed`/`--label` for it (no items, marks, reactions,
+provider settings, api key names or local paths ever), and a selection that
+touches one of your `[privacy]` canaries refuses outright. `recipe inspect`
+previews any recipe file read-only with the same fail-closed parser, and
+`recipe import <file> --as a-desk` regenerates a brand-new, isolated reader
+from it — never an overwrite, independent per recipient. Both sides preview
+before writing and need `--consent`; `--link` attaches an explicit
+public-only renderer link to your rendered paper. See
+[docs/recipe/](docs/recipe/README.md).
 
 ## Status
 
@@ -207,8 +236,11 @@ Early (v0.2) and used every day by its authors. Known gaps:
 - Small local models also overstate claims now and then. Every card links its sources: check strong
   claims there, or use a bigger model.
 - Corrections (flagging when a story contradicts what it said before) are designed but not built.
-- An agent interface (a skill and an MCP server, so your agent can judge relevance with its own
-  memory) is on the roadmap.
+- A read-only agent surface exists: public-only exports plus a portable skill
+  ([docs/agent/](docs/agent/README.md)), so an external agent can look up the paper's
+  public stories and get an evidence-graded "what changed since I last read"
+  brief without ever touching the private database. An MCP server on top of it
+  is still on the roadmap.
 
 ## Development
 
@@ -218,6 +250,14 @@ uv run --with pytest pytest -q        # or: make check
 ```
 
 Tests use synthetic fixtures and fake models only, with no network.
+
+`src/gaceta/assets/desk/` ships the desk packet: a redistributable synthetic sample of the
+pipeline's input — eight invented EN/ES documents over three days (one official decision, five
+repeats of its coverage, one similar but unrelated matter), each citing its source-language
+original, with an accessible offline rendering (`index.html`) and a local RSS form for
+`ingest`. The data is CC BY 4.0 (attribution terms in its `NOTICE.md`); its answer key is
+isolated under `tests/fixtures/desk/` so the shipped tree stays blind, and
+`make_desk_packet.py` regenerates everything byte for byte.
 
 ## License
 

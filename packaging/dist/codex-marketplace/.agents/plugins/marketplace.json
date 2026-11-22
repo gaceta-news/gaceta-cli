@@ -1,0 +1,20 @@
+{
+  "name": "gaceta-news",
+  "plugins": [
+    {
+      "name": "gaceta",
+      "source": {
+        "source": "local",
+        "path": "./gaceta"
+      },
+      "policy": {
+        "installation": "AVAILABLE"
+      },
+      "category": "Productivity",
+      "interface": {
+        "displayName": "gaceta"
+      }
+    }
+  ]
+}
+

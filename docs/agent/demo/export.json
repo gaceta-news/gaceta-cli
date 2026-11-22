@@ -1,0 +1,121 @@
+{
+  "schema_version": 1,
+  "kind": "gaceta.agent-export",
+  "reader": {
+    "id": "demo",
+    "name": "Demo Reader"
+  },
+  "edition": {
+    "date": "2026-11-19",
+    "built_at": "2026-11-19T21:16:02-05:00",
+    "folio_code": "2799ED",
+    "stories_total": 3
+  },
+  "privacy": {
+    "max_level": "public"
+  },
+  "citation": {
+    "policy": "Sources are the only citable evidence: cite a source only for what it explicitly supports. The summary field is model-written text, never evidence. Links and model summaries are never promoted to 'confirmed' claims; if the sources do not support something, say so.",
+    "summary_origin": "model",
+    "confirmed_exists": false
+  },
+  "stories": {
+    "demo-aurora": {
+      "title": "Shimmer over Demo Ridge draws sky watchers",
+      "status": "developing",
+      "privacy": "public",
+      "summary": "Two sources describe a slow, aurora-like shimmer over Demo Ridge on the night of 16 November: a Gazette note from the next morning and a timelapse from Quiet Orbit Lab. They agree on the timing and on little else, so the cause remains an open question.",
+      "summary_written_by": "model",
+      "confidence": 0.7,
+      "first_seen": "2026-11-17T09:00:00+01:00",
+      "last_seen": "2026-11-17T18:30:00+01:00",
+      "sources": [
+        {
+          "title": "Sky watchers report a shimmer over Demo Ridge",
+          "url": "https://gazette.example/sky/demo-ridge-shimmer",
+          "author": "The Demo Gazette",
+          "kind": "rss",
+          "published": "2026-11-17T09:00:00+01:00",
+          "role": "origin"
+        },
+        {
+          "title": "Night sky timelapse: the shimmer over Demo Ridge",
+          "url": "https://www.youtube.com/watch?v=FAKEdemo01",
+          "author": "Quiet Orbit Lab",
+          "kind": "youtube",
+          "published": "2026-11-17T18:00:00+01:00",
+          "role": "update"
+        }
+      ],
+      "corrections": [
+        {
+          "said": "The shimmer was visible on two consecutive nights.",
+          "now": "The Gazette note covers one night only; no source mentions a second night.",
+          "at": "2026-11-18T10:00:00+01:00"
+        }
+      ]
+    },
+    "demo-trail": {
+      "title": "Demo Loop trail reopens after boardwalk repairs",
+      "status": "settled",
+      "privacy": "public",
+      "summary": "The Demo Loop footpath is passable again after its boardwalk repairs, and a walker's report confirms the new boards hold. Both sources agree the detour sign stays until the replacement fence is installed.",
+      "summary_written_by": "model",
+      "confidence": 0.8,
+      "first_seen": "2026-11-15T09:00:00+01:00",
+      "last_seen": "2026-11-17T09:30:00+01:00",
+      "sources": [
+        {
+          "title": "Demo Loop boardwalk repairs finished",
+          "url": "https://trails.example/demo-loop-reopens",
+          "author": "Trail Notes Weekly",
+          "kind": "rss",
+          "published": "2026-11-15T08:30:00+01:00",
+          "role": "origin"
+        },
+        {
+          "title": "Walk report: Demo Loop on the first dry weekend",
+          "url": "https://notes.example/notes/b66e8a0f1ec9",
+          "author": "bracken-lantern",
+          "kind": "nostr",
+          "published": "2026-11-17T09:00:00+01:00",
+          "role": "update"
+        }
+      ],
+      "history": [
+        {
+          "version": 1,
+          "at": 1794729600,
+          "summary": "The Demo Loop footpath has reopened after repairs to its boardwalk.",
+          "what_changed": "First write-up from the reopening note."
+        },
+        {
+          "version": 2,
+          "at": 1794904200,
+          "summary": "The Demo Loop footpath is passable again after its boardwalk repairs, and a walker's report confirms the new boards hold. Both sources agree the detour sign stays until the replacement fence is installed.",
+          "what_changed": "Added the walker's note; the detour sign now has a stated end condition."
+        }
+      ]
+    },
+    "demo-quiet": {
+      "title": "Demo Valley seed library opens its winter swap",
+      "status": "settled",
+      "privacy": "public",
+      "summary": null,
+      "summary_written_by": "model",
+      "confidence": null,
+      "first_seen": "2026-11-16T09:30:00+01:00",
+      "last_seen": "2026-11-16T09:30:00+01:00",
+      "sources": [
+        {
+          "title": "Demo Valley seed library opens its winter swap",
+          "url": "https://gazette.example/demo-valley-seed-swap",
+          "author": "The Demo Gazette",
+          "kind": "rss",
+          "published": "2026-11-16T09:00:00+01:00",
+          "role": "origin"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,238 @@
+{
+  "schema_version": 1,
+  "kind": "gaceta.agent-export",
+  "reader": {
+    "id": "testreader",
+    "name": "Test Reader"
+  },
+  "edition": {
+    "date": "2023-11-21",
+    "built_at": "2026-11-19T23:21:47-05:00",
+    "folio_code": "75BE8A",
+    "stories_total": 6
+  },
+  "privacy": {
+    "max_level": "public"
+  },
+  "citation": {
+    "policy": "Sources are the only citable evidence: cite a source only for what it explicitly supports. The summary field is model-written text, never evidence. Links and model summaries are never promoted to 'confirmed' claims; if the sources do not support something, say so.",
+    "summary_origin": "model",
+    "confirmed_exists": false
+  },
+  "semantics": {
+    "published": "sources[].published and support[].published: when the OUTLET published the content. Never reading history; never used for 'since your baseline' comparisons.",
+    "trace": "first_seen/last_seen, sources[].added, versions[].written_at, corrections[].at: when the PAPER ingested, clustered or wrote something. Never reading history.",
+    "reading_history": "only your baseline (you stated it: your last-read edition date and the write-up versions you last saw). This surface holds no per-person marks and cannot know when anyone actually read anything.",
+    "comparisons": "every 'since your baseline' comparison uses your stated version or the paper's trace times; a source's published time is never compared."
+  },
+  "baseline": {
+    "reader": "testreader",
+    "date": "2023-11-19",
+    "versions": {
+      "stOld": 1,
+      "stSame": 1,
+      "stDup": 1,
+      "stMiss": 1,
+      "stDrift": 1
+    }
+  },
+  "skipped_editions": [
+    {
+      "date": "2023-11-20",
+      "built_at": "2026-11-20T04:21:47+00:00"
+    }
+  ],
+  "skipped_editions_note": "public editions built after your baseline date with no baseline record of reading them; the current edition is in hand and never listed",
+  "updates": [
+    {
+      "story_id": "stOld",
+      "title": "Story Old",
+      "baseline": {
+        "claimed_version": 1,
+        "status": "known",
+        "reason": "baseline version 1 of 2 matches the paper's write-up history"
+      },
+      "current_version": 2,
+      "change": {
+        "status": "material_change",
+        "reason": "evidence-supported change since your baseline; each proposal carries the public sources behind it",
+        "proposals": [
+          {
+            "kind": "proposed_update",
+            "version": 2,
+            "written_at": "2023-11-20T00:13:20+00:00",
+            "what_changed": "A second source confirms the April limits.",
+            "what_changed_origin": "model",
+            "support": [
+              {
+                "title": "Engineer confirms two limits",
+                "url": "https://example.net/confirm",
+                "author": null,
+                "kind": "other",
+                "published": "2023-11-04T22:13:20+00:00",
+                "added": "2023-11-19T23:13:20+00:00",
+                "excerpt": "The county engineer confirms the bridge report will name two new load limits from April."
+              }
+            ],
+            "support_kind": "joined_sources"
+          },
+          {
+            "kind": "proposed_correction",
+            "version": null,
+            "written_at": "2023-11-20T01:13:20+00:00",
+            "said": "one new load limit",
+            "now": "two new load limits",
+            "what_changed": "two new load limits",
+            "what_changed_origin": "model",
+            "support": [
+              {
+                "title": "Engineer confirms two limits",
+                "url": "https://example.net/confirm",
+                "author": null,
+                "kind": "other",
+                "published": "2023-11-04T22:13:20+00:00",
+                "added": "2023-11-19T23:13:20+00:00",
+                "excerpt": "The county engineer confirms the bridge report will name two new load limits from April."
+              }
+            ],
+            "support_kind": "joined_sources"
+          }
+        ]
+      }
+    },
+    {
+      "story_id": "stDup",
+      "title": "Story Dup",
+      "baseline": {
+        "claimed_version": 1,
+        "status": "known",
+        "reason": "baseline version 1 of 2 matches the paper's write-up history"
+      },
+      "current_version": 2,
+      "change": {
+        "status": "no_supported_update",
+        "reason": "the paper's change pass assessed the newer write-up(s) as rewording/duplicate coverage only",
+        "assessed_no_change": [
+          {
+            "version": 2,
+            "written_at": "2023-11-20T00:13:20+00:00",
+            "support": [
+              {
+                "title": "Second outlet repeats figure",
+                "url": "https://example.net/dup2",
+                "author": null,
+                "kind": "other",
+                "published": "2023-11-04T22:13:20+00:00",
+                "added": "2023-11-19T23:13:20+00:00",
+                "excerpt": "A second outlet repeats the same road figure, adding no new detail."
+              }
+            ],
+            "note": "assessed as rewording/duplicate coverage only"
+          }
+        ]
+      }
+    },
+    {
+      "story_id": "stMiss",
+      "title": "Story Miss",
+      "baseline": {
+        "claimed_version": 1,
+        "status": "known",
+        "reason": "baseline version 1 of 2 matches the paper's write-up history"
+      },
+      "current_version": 2,
+      "change": {
+        "status": "unknown",
+        "reason": "missing evidence: a newer write-up has no change note on record; ",
+        "unassessed_versions": [
+          {
+            "version": 2,
+            "written_at": "2023-11-20T00:13:20+00:00",
+            "support": [
+              {
+                "title": "Move delayed a week",
+                "url": "https://example.net/miss2",
+                "author": null,
+                "kind": "other",
+                "published": "2023-11-09T22:13:20+00:00",
+                "added": "2023-11-19T23:13:20+00:00",
+                "excerpt": "The register office move was delayed a week."
+              }
+            ],
+            "note": "rewrite without a change note on record (the change pass has not assessed it)"
+          }
+        ]
+      }
+    },
+    {
+      "story_id": "stDrift",
+      "title": "Story Drift",
+      "baseline": {
+        "claimed_version": 1,
+        "status": "known",
+        "reason": "your baseline version is the current write-up"
+      },
+      "current_version": 1,
+      "change": {
+        "status": "unknown",
+        "reason": "missing evidence: coverage joined that no write-up has assessed yet",
+        "new_coverage_unassessed": [
+          {
+            "title": "New county filing",
+            "url": "https://example.org/drift2",
+            "author": null,
+            "kind": "other",
+            "published": "2023-11-12T22:13:20+00:00",
+            "added": "2023-11-19T23:13:20+00:00",
+            "excerpt": "A new filing appeared in the county register for the co-op."
+          }
+        ]
+      }
+    },
+    {
+      "story_id": "stSame",
+      "title": "Story Same",
+      "baseline": {
+        "claimed_version": 1,
+        "status": "known",
+        "reason": "your baseline version is the current write-up"
+      },
+      "current_version": 1,
+      "change": {
+        "status": "no_supported_update",
+        "reason": "no write-up, correction or ingested coverage trace after your baseline point in this export's evidence"
+      }
+    },
+    {
+      "story_id": "stNew",
+      "title": "Story New",
+      "baseline": {
+        "claimed_version": null,
+        "status": "none_stated",
+        "reason": "not in your baseline; comparing trace evidence against your baseline date 2023-11-19"
+      },
+      "current_version": null,
+      "change": {
+        "status": "new_story",
+        "reason": "first entered the paper's trace after your baseline date; none of it is in your baseline — its sources are the evidence",
+        "new_coverage_unassessed": [
+          {
+            "title": "Winter ferry timetable",
+            "url": "https://example.com/new",
+            "author": null,
+            "kind": "other",
+            "published": "2023-11-20T22:13:20+00:00",
+            "added": "2023-11-20T22:13:20+00:00",
+            "excerpt": "The harbor office posted the winter ferry timetable."
+          }
+        ]
+      }
+    }
+  ],
+  "approval": {
+    "state": "proposal",
+    "by": "reader",
+    "how": "accept by reading the cited sources, then record your own new baseline (this edition's date and each story's current version) for the next launch. The paper's own 'Visto' marks stay on the owner side; this surface never writes anything.",
+    "never": "no proposal here is 'confirmed'; links and model summaries are never promoted to 'confirmed' claims."
+  }
+}

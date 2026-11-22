@@ -1,0 +1,157 @@
+{
+  "schema": 1,
+  "kind": "gaceta.desk-oracle",
+  "packet_id": "desk-2026-11-16-18-en-es-v1",
+  "never_ship_with": "src/gaceta/assets/desk/ — the blind tree is redistributable on its own; this file must stay under tests/fixtures/desk/.",
+  "events": [
+    {
+      "key": "arav-resolution-117-2026",
+      "label": "material_decision",
+      "canonical_doc": "gaz-4127-arav-117",
+      "documents": [
+        "gaz-4127-arav-117",
+        "anuv-0847",
+        "vmp-0411",
+        "her-1129",
+        "pul-0563",
+        "ledger-2026-111"
+      ],
+      "expected_facts": {
+        "authority": "Autoridad Reguladora de Aguas de Valdora (ARAV)",
+        "instrument": "Resolución No. 117-2026",
+        "first_published": "2026-11-16",
+        "gazette_edition": 4127,
+        "respondent": "Compañía Minera Cerro Alto, S.A.",
+        "site": "acuífero de la Serranía del Toldo, sector Vega Norte",
+        "fine": "V$ 4.200.000",
+        "remediation_deadline_days": 90,
+        "fine_payment_business_days": 30,
+        "appeal_business_days": 15,
+        "effective": "cumplimiento inmediato"
+      },
+      "why": "New, authoritative instrument first published in the official gazette on day 1: a liability finding, a 90-day remediation clock, a V$ 4.200.000 fine and immediate effect."
+    },
+    {
+      "key": "arev-resolution-098-2026",
+      "label": "similar_unrelated_event",
+      "canonical_doc": "gaz-4129-arev-098",
+      "documents": [
+        "gaz-4129-arev-098",
+        "vmp-0412"
+      ],
+      "expected_facts": {
+        "authority": "Autoridad Reguladora de Energía de Valdora (AREV)",
+        "instrument": "Resolución No. 098-2026",
+        "first_published": "2026-11-18",
+        "gazette_edition": 4129,
+        "respondent": "Generadora Marbrisa, S.A.",
+        "site": "aguas subterráneas del polígono portuario de Puerto Gris",
+        "fine": "V$ 2.750.000",
+        "remediation_deadline_days": 60,
+        "fine_payment_business_days": 20,
+        "appeal_business_days": 10,
+        "effective": "cumplimiento inmediato"
+      },
+      "why": "Deliberate near-miss: the same domain vocabulary (fine, cleanup plan, groundwater, reconsideration window) but a different authority, respondent, instrument, site and magnitude. Not the same matter. A purely lexical embedding cannot tell the two Spanish gazette records apart (they share the function-word mass of legal Spanish) — that is the failure mode this packet exists to expose, and the fake-embedder baseline below records it."
+    }
+  ],
+  "per_document": {
+    "gaz-4127-arav-117": {
+      "classification": "material_decision",
+      "event": "arav-resolution-117-2026",
+      "note": "First authoritative publication of a new instrument."
+    },
+    "anuv-0847": {
+      "classification": "repeat",
+      "event": "arav-resolution-117-2026",
+      "note": "Same-evening wire copy restating Resolution 117-2026; no new facts."
+    },
+    "vmp-0411": {
+      "classification": "repeat",
+      "event": "arav-resolution-117-2026",
+      "note": "English-language daily restating Resolution 117-2026; no new facts."
+    },
+    "her-1129": {
+      "classification": "repeat",
+      "event": "arav-resolution-117-2026",
+      "note": "Next-day broadsheet restating Resolution 117-2026; adds a quote."
+    },
+    "pul-0563": {
+      "classification": "repeat",
+      "event": "arav-resolution-117-2026",
+      "note": "Business daily restating Resolution 117-2026; adds analyst colour."
+    },
+    "ledger-2026-111": {
+      "classification": "repeat",
+      "event": "arav-resolution-117-2026",
+      "note": "English analysis of Resolution 117-2026; commentary, not a new decision."
+    },
+    "gaz-4129-arev-098": {
+      "classification": "similar_unrelated_event",
+      "event": "arev-resolution-098-2026",
+      "note": "AREV instrument against Generadora Marbrisa; same domain words, different authority, respondent, instrument, site, magnitude."
+    },
+    "vmp-0412": {
+      "classification": "similar_unrelated_event",
+      "event": "arev-resolution-098-2026",
+      "note": "English coverage of the AREV instrument; the same near-miss pattern across languages."
+    }
+  },
+  "counts": {
+    "documents": 8,
+    "material_decision": 1,
+    "repeat": 5,
+    "similar_unrelated_event": 2,
+    "languages": {
+      "es": 5,
+      "en": 3
+    }
+  },
+  "rubric": [
+    {
+      "id": "identify",
+      "requirement": "Report exactly one material decision for the window: ARAV Resolution 117-2026, first published 2026-11-16 in gazette edition 4127."
+    },
+    {
+      "id": "collapse-repeats",
+      "requirement": "The five derivative documents are coverage of that one decision: one story, not six."
+    },
+    {
+      "id": "reject-similar-unrelated",
+      "requirement": "AREV Resolution 098-2026 is a separate matter and must not be merged into the ARAV decision or reported as part of it."
+    },
+    {
+      "id": "source-language",
+      "requirement": "English coverage must resolve back to the Spanish original notice (the gazette record), not stand as an independent decision."
+    }
+  ],
+  "fake_embedder_baseline": {
+    "note": "Deterministic baseline of gaceta's FakeEmbedder (signed bag-of-words) at the fixture threshold 0.70, window 21 days, measured on this exact packet. Same-language coverage of the decision joins into one story per language; the English coverage of the unrelated event stays out of every story; and the lookalike Spanish gazette record of the unrelated event MERGES into the decision's Spanish story — a purely lexical embedding cannot separate two same-register legal texts. That merge is the failure mode the packet is built to expose: score a run of `gaceta eval` against golden.json and the pairwise/B-cubed numbers fall out of exactly this partition. This is plumbing, not a quality claim: the packet asserts nothing about any live model.",
+    "expected_stories": [
+      [
+        "gaz-4127-arav-117",
+        "anuv-0847",
+        "her-1129",
+        "pul-0563",
+        "gaz-4129-arev-098"
+      ],
+      [
+        "vmp-0411",
+        "ledger-2026-111"
+      ],
+      [
+        "vmp-0412"
+      ]
+    ],
+    "expected_metrics": {
+      "note": "gaceta.evals.clustering.evaluate() of that partition against golden.json — the numbers a FakeEmbedder run of `gaceta eval` must reproduce exactly.",
+      "precision": 0.6364,
+      "recall": 0.4375,
+      "f1": 0.5185,
+      "b3_precision": 0.8,
+      "b3_recall": 0.5417,
+      "b3_f1": 0.646,
+      "n_stories": 3
+    }
+  }
+}

@@ -1,0 +1,45 @@
+# {{SKILL_NAME}} skill — packaged for {{CLIENT_LABEL}}
+
+Generated from `packaging/catalog.json` + `packaging/templates/` at candidate
+**{{VERSION}}** by `scripts/build-packages.py`. Do not edit by hand: edit the
+catalog/templates and rebuild, so every surface stays in parity (CI checks
+this with `scripts/check-parity.py`).
+
+- **Skill:** {{SKILL_DESCRIPTION}}
+- **Runtime:** read-only `gaceta agent edition|story|since` over one
+  public-only export; nothing else. The unchanged discipline text from
+  `docs/agent/SKILL.md` is embedded in `SKILL.md`.
+- **Home:** {{SKILL_HOME_HINT}}
+- **Engine (not included):** {{INSTALL_CMD}}
+- **License:** {{SKILL_LICENSE}} · **Source:** {{REPO}} · **Issues:** {{ISSUES}}
+
+## Files
+
+```
+SKILL.md                     the skill (frontmatter + discipline + demo)
+README.md                    this file
+scripts/make_agent_demo.py   regenerates the synthetic demo export into a
+                             directory you own (no network, no model calls)
+scripts/make_demo_export.py  byte-identical copy of docs/agent/demo/
+                             make_demo_export.py — the demo generator
+assets/demo-baseline.json    version-only example memory (demo-trail v1)
+```
+
+## Try it offline ({{VERSION}}, synthetic data)
+
+```bash
+python scripts/make_agent_demo.py WORKDIR
+gaceta agent edition --reader demo --path WORKDIR/export.json
+gaceta agent story   --reader demo --id demo-aurora --path WORKDIR/export.json
+gaceta agent since   --reader demo --baseline assets/demo-baseline.json \
+    --path WORKDIR/export.json
+```
+
+No export ships in this package on purpose: exports carry a 48-hour freshness
+gate, so a pre-built file would arrive stale. The generator writes a fresh
+one in seconds. Nothing here contains real coverage or anyone's private data.
+
+## Uninstall
+
+Remove this skill directory{{UNINSTALL_EXTRA}}. The engine, if you installed
+it too: `{{UNINSTALL_CMD}}`, then remove its data directory (`$GACETA_DATA`).

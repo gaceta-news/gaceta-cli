@@ -1,0 +1,61 @@
+# Listing draft — Hermes skills registry/hub (gaceta)
+
+Status: **DRAFT — not submitted anywhere.** Registry/hub acceptance,
+indexing and search are external dependencies; submission happens only
+after the P5 gates pass, from the pinned public revision. This file records
+exactly what would be listed, from the single metadata source
+(`packaging/catalog.json`, candidate {{VERSION}}).
+
+## Listing fields
+
+| Field | Value |
+|---|---|
+| Identifier (registry) | `gaceta-news/gaceta` (repo tap: `hermes skills tap add gaceta-news/gaceta-cli`) |
+| Name | `{{SKILL_NAME}}` (formerly `{{SKILL_FORMERLY}}`) |
+| Description | {{SKILL_DESCRIPTION}} |
+| Category | `{{HERMES_CATEGORY}}` (category placement is a listing decision; `research` matches the reading/feeds domain) |
+| Tags | {{HERMES_TAGS}} |
+| Version | `{{VERSION}}` (stamped from `gaceta.__version__`; CI rejects drift) |
+| Author | {{SKILL_AUTHOR}} |
+| License | {{SKILL_LICENSE}} |
+| Platforms | linux, macos, windows |
+| Source | {{REPO}} |
+| Issues | {{ISSUES}} |
+
+## Long description (for the listing page)
+
+Read-only lookup over a versioned, public-only JSON export of a gaceta
+reader's edition: what is in today's paper, one story with its sources and
+corrections, and an honest what-changed-since-you-last-read brief that
+grades only the baseline your session stated. The export is public-only by
+construction, refuses to serve after 48 hours, and the three commands
+(`gaceta agent edition|story|since`) make no model calls. The skill does
+not install or build the paper — the owner runs the gaceta engine on their
+own machine; a bundled synthetic demo lets an agent try the surface with
+zero data.
+
+## Install instructions (for the listing)
+
+From a checkout/tag of {{TAG}}: unzip `packaging/dist/archives/{{SKILL_NAME}}-hermes-skill-{{TAG}}.zip`
+into `~/.hermes/skills/` (creates `research/{{SKILL_NAME}}/`), or:
+
+```bash
+mkdir -p ~/.hermes/skills/research
+unzip gaceta-hermes-skill-{{TAG}}.zip -d ~/.hermes/skills/
+```
+
+Engine (separate, pinned): `{{INSTALL_CMD}}`
+
+Direct registry/HTTPS install (once the release is public and listed):
+`hermes skills install <listing url for SKILL.md>`
+
+## Verification (what the listing may claim)
+
+Validated: frontmatter against the stock Hermes skills conventions
+(name/description/version/author/license/platforms, description ≤ 60 chars
+one sentence), layout (one directory, `SKILL.md` + `scripts/` + `assets/`),
+and the packaged offline demo end to end on a clean installed wheel
+({{CANDIDATE}}). Not claimed: blind discovery, organic search ranking,
+configured usage, reader retention. Not tested end to end until the release
+source is public: `hermes skills install` from the registry/HTTPS path
+itself.

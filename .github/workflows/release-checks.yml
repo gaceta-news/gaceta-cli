@@ -1,0 +1,45 @@
+name: release-checks
+# Opt-in release evidence for a candidate (P4 plan: "Opt-in release jobs cover
+# live editor, clean install and configured clients"). Triggered manually by
+# the release owner at the pinned revision; nothing here publishes,
+# registers, or contacts any catalog. Configured-client trials are P5
+# cleanroom work and are deliberately NOT part of this job.
+on:
+  workflow_dispatch:
+
+jobs:
+  candidate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - run: uv sync
+
+      - name: full suite + packaging parity
+        run: make check
+
+      - name: verify exact release tag before smoke
+        run: python scripts/check-parity.py --release
+
+      - name: release smoke (locked, clean wheel, offline edition)
+        run: bash scripts/smoke-release.sh
+
+      - name: packaged install (clean wheel outside checkout + stock
+          client round trip; codex step self-skips when no codex binary)
+        run: bash scripts/test-packaged-install.sh
+
+      - name: record candidate versions for the evidence log
+        run: |
+          uv run gaceta --version
+          uv run python - <<'PY'
+          import json, pathlib
+          manifest = json.loads(
+              pathlib.Path("packaging/dist/MANIFEST.json").read_text())
+          print("packaged candidate:", manifest["version"])
+          print("files:", len(manifest["files"]),
+                "archives:", len(manifest["archives"]))
+          PY

@@ -125,7 +125,7 @@ def language_fix_message(got: str, want: str) -> dict:
 
 
 def writeup_messages(items: list[dict], *, langs: str, profile: str | None,
-                     allow_private: bool) -> list[dict]:
+                     allow_private: bool, followup: bool = False) -> list[dict]:
     """Messages asking for one story card. Same model boundary as confirm_messages:
     the reader profile and per-item annotation notes appear ONLY when the model is
     allow_private=True. Nothing else about the reader ever enters the prompt."""
@@ -137,9 +137,14 @@ def writeup_messages(items: list[dict], *, langs: str, profile: str | None,
     if allow_private and profile and profile.strip():
         user.append("READER PROFILE (private):\n" + profile.strip())
     user.append(f"Reader languages: {', '.join(langs_list)}. {lang_line}")
+    if followup:
+        user.append("This is a follow-up. If a NEW COVERAGE item adds a substantive, supported "
+                    "fact, put that fact in the headline and first sentence, then give only the "
+                    "context needed to understand it. Do not mistake a newly collected article "
+                    "or repeated reporting for a new development.")
     user.append(
         "STORY ITEMS (oldest first):\n"
-        + "\n\n".join(f"ITEM {n}:\n" + describe_item(
+        + "\n\n".join(f"ITEM {n}{' — NEW COVERAGE' if followup and it.get('new_coverage') else ''}:\n" + describe_item(
             it, include_note=allow_private, body_chars=min(24_000, 64_000 // max(1, len(items)))
         ) for n, it in enumerate(items, 1))
     )

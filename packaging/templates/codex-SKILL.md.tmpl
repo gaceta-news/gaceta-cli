@@ -1,0 +1,84 @@
+---
+name: {{SKILL_NAME}}
+description: {{SKILL_DESCRIPTION_LONG}}
+---
+
+# {{SKILL_NAME}} — find what changed in stories from the reader's feeds
+
+## What this skill is (and is not)
+
+Read-only lookup over **one artifact**: a versioned, public-only JSON export
+of a gaceta reader's current edition. Three commands answer what is in the
+paper, one story with its sources, and what changed since the baseline your
+session stated.
+
+This skill does **not** install, configure, fetch, schedule or build a paper.
+The owner runs the gaceta engine on their own machine ({{REPO}}, candidate
+{{VERSION}}); you only read what they hand you — or the bundled demo below.
+It was previously documented as `{{SKILL_FORMERLY}}`.
+
+## When to use / don't use for
+
+- **Use** for: "what's in today's paper", "what changed since I last read",
+  looking up a story by id with its sources, corrections or version history.
+- **Don't use for**: summarizing a single article with no reader export
+  (just answer it), any owner-side work (`ingest`, `write`, `edition`,
+  `agent export` are not yours), or filling gaps with guesses.
+
+## Where you work (isolated, no broad filesystem grant)
+
+Work in one session directory you were given, or create one. Everything you
+touch — the export file (`--path`), your own baseline file, the demo output —
+lives there. You never need `$GACETA_DATA`, the gaceta database, reader
+configs, or any path outside that directory. If you were handed a
+`gaceta-agent-lookup` wrapper (see docs/agent/README.md), use it for every
+command instead of `gaceta agent`.
+
+This is a stock local skill: USER scope lives at `$HOME/.agents/skills/`
+(`$CWD/.agents/skills` for repo scope). No experimental feature flags or
+adapters are needed to load it; invoke it explicitly with `$gaceta` or let
+the description match your task.
+
+## Prerequisites
+
+- `gaceta` on PATH: `gaceta --version` must print `{{VERSION}}`
+  (pinned install: `{{INSTALL_CMD}}`).
+- An export: the conventional path `$GACETA_DATA/agent-exports/<reader>/current.json`,
+  an explicit `--path` your session was given, or no export at all → demo.
+
+## Try it with zero data (offline demo, synthetic)
+
+```bash
+python <this skill directory>/scripts/make_agent_demo.py WORKDIR
+gaceta agent edition --reader demo --path WORKDIR/export.json
+gaceta agent story   --reader demo --id demo-aurora --path WORKDIR/export.json
+gaceta agent since   --reader demo \
+    --baseline <this skill directory>/assets/demo-baseline.json \
+    --path WORKDIR/export.json
+```
+
+Everything in the demo is invented (`*.example` hosts, `FAKE` video ids,
+fictional places): no network, no model calls, no real data. The bundled
+`assets/demo-baseline.json` states a version-only memory (`demo-trail` v1),
+so the brief returns one evidence-backed proposal for `demo-trail` v2 and
+explicit `unknown` everywhere the evidence does not reach.
+
+## Verification (you are done when)
+
+Each command exits 0 with JSON on stdout; you cite only `sources`/`support`
+entries; every `unknown` in the payload is reported as unknown, never
+smoothed over.
+
+## Uninstall
+
+Remove this skill directory (or the plugin: `codex plugin remove gaceta`
+plus `codex plugin marketplace remove {{MARKETPLACE_NAME}}` if you added the
+local marketplace). If you also installed the engine: `{{UNINSTALL_CMD}}`,
+then remove its data directory (`$GACETA_DATA`). Boundaries and costs: see
+the gaceta landing page in the repo (`packaging/dist/web/`).
+
+---
+
+# The read-only runtime (unchanged from docs/agent/SKILL.md, candidate {{VERSION}})
+
+{{AGENT_BODY}}
