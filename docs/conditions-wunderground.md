@@ -55,7 +55,12 @@ box is served from cache until its observation is itself stale.
 * **facts** (a newspaper box, ≤ 12 rows, missing values are omitted, never
   zeroed): Sensación (only when heat index/wind chill differs by ≥ 1 °C),
   Humedad, Viento (8-point compass, "en calma" under 1 km/h, · ráfaga),
-  Lluvia hoy (mm, plus mm/h while raining), Máx / mín hoy (observed, from
+  Lluvia hoy (mm, plus mm/h while raining), Lluvia del mes (closed days of
+  the station's local month from the 7-day summary or `/v2/pws/history/daily`,
+  each fetched once and cached for the process; plus today's running total;
+  days without data are counted and printed as «falta N días», never as zero;
+  live refreshes fetch at most 12 closed days per call and omit the row until
+  the sum is complete; `month_rain = false` turns it off), Máx / mín hoy (observed, from
   the station's own daily summary for its local date), Presión, UV (only
   when > 0), then Hoy / Mañana — `20° / 12° · phrase · 94 %` with the
   daypart's pictogram.

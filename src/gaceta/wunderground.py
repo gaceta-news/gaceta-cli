@@ -38,19 +38,21 @@ LIVE_TTL = 90           # seconds between live() observation fetches (min 30)
 DAILY_BUDGET = 1400     # API calls per day (free PWS keys: 1500/day, 30/min)
 NEAR_TTL = timedelta(hours=24)
 SUMMARY_TTL = timedelta(minutes=15)
+MONTH_FETCH_MAX = 12   # past-day history calls per LIVE refresh (closed days are cached for good;
+                       # an edition build, a fresh process, may fetch the whole month at once)
 FORECAST_TTL = timedelta(minutes=30)
 POURING_MM_H = 7.6      # observed rate over which the box icon is 'pouring'
 
 TEXTS = {
     "es": {"title": "El tiempo", "feels": "Sensación", "humidity": "Humedad",
-           "wind": "Viento", "rain": "Lluvia hoy", "high_low": "Máx / mín hoy",
+           "wind": "Viento", "rain": "Lluvia hoy", "rain_month": "Lluvia del mes", "missing_days": "faltan {n} días", "missing_day": "falta 1 día", "high_low": "Máx / mín hoy",
            "pressure": "Presión", "today": "Hoy", "tomorrow": "Mañana",
            "raining": "lloviendo", "calm": "en calma", "gust": "ráfaga",
            "note": "máx {hi}° · mín {lo}°",
            "source": "estación {station} · Weather Underground",
            "forecast_source": " · pronóstico TWC"},
     "en": {"title": "Weather", "feels": "Feels like", "humidity": "Humidity",
-           "wind": "Wind", "rain": "Rain today", "high_low": "High / low today",
+           "wind": "Wind", "rain": "Rain today", "rain_month": "Rain this month", "missing_days": "{n} days missing", "missing_day": "1 day missing", "high_low": "High / low today",
            "pressure": "Pressure", "today": "Today", "tomorrow": "Tomorrow",
            "raining": "raining", "calm": "calm", "gust": "gust",
            "note": "high {hi}° · low {lo}°",
@@ -177,6 +179,15 @@ class WundergroundBox:
         self._lock = threading.Lock()
         self._near: str | None = None
         self._near_at: datetime | None = None
+        self.month_rain_on = table.get("month_rain", True) not in (False, "false", 0)
+        self._hist: dict[tuple[str, str], float | None] = {}
+        # closed days never change: persist them so every edition build (a
+        # fresh process) doesn't re-spend ~30 calls of the 1500/day quota
+        cache_dir = table.get("cache_dir", "~/.cache/gaceta")
+        self._hist_path = (Path(os.path.expanduser(str(cache_dir))) / "wunderground-days.json"
+                           if cache_dir else None)
+        self._hist_loaded = False
+        self._live_now = False   # closed days: (station, YYYYMMDD) -> mm
         self._summ: list | None = None
         self._summ_station = ""
         self._summ_at: datetime | None = None
@@ -289,6 +300,85 @@ class WundergroundBox:
                 return row
         return {}
 
+    def _month_rain(self, station: str, obs: dict, now: datetime) -> tuple[float, int] | None:
+        """Rain since the 1st of the station's local month: closed days from the
+        7-day summaries or /v2/pws/history/daily (each closed day fetched once,
+        cached for good), plus today's running precipTotal. Returns (mm, days
+        without data) or None while closed days are still being fetched — a
+        partial sum is never printed as the month."""
+        today_txt = str(obs.get("obsTimeLocal") or "")[:10]
+        try:
+            today = date.fromisoformat(today_txt)
+        except ValueError:
+            return None
+        self._load_hist()
+        before = len(self._hist)
+        try:
+            return self._month_sum(station, obs, now, today)
+        finally:
+            if len(self._hist) != before:
+                self._save_hist()
+
+    def _load_hist(self) -> None:
+        if self._hist_loaded:
+            return
+        self._hist_loaded = True
+        try:
+            raw = json.loads(self._hist_path.read_text(encoding="utf-8")) if self._hist_path else {}
+            for k, v in (raw or {}).items():
+                station, _, day = str(k).partition("/")
+                if station and len(day) == 8 and (v is None or isinstance(v, (int, float))):
+                    self._hist.setdefault((station, day), v)
+        except (OSError, ValueError, AttributeError):
+            pass
+
+    def _save_hist(self) -> None:
+        if not self._hist_path:
+            return
+        try:
+            self._hist_path.parent.mkdir(parents=True, exist_ok=True)
+            keep = sorted(self._hist.items(), key=lambda kv: kv[0][1])[-400:]   # bounded
+            tmp = self._hist_path.with_suffix(".tmp")
+            tmp.write_text(json.dumps({f"{s}/{d}": v for (s, d), v in keep}), encoding="utf-8")
+            tmp.replace(self._hist_path)
+        except OSError:
+            pass
+
+    def _month_sum(self, station: str, obs: dict, now: datetime, today: date):
+        known = {str(r.get("obsTimeLocal") or "")[:10]: _num((r.get("metric") or {}).get("precipTotal"))
+                 for r in self._summaries(station, now)}
+        total, missing, fetched = 0.0, 0, 0
+        for d in range(1, today.day):
+            day = today.replace(day=d)
+            key = (station, day.strftime("%Y%m%d"))
+            if key not in self._hist and day.isoformat() in known:
+                self._hist[key] = known[day.isoformat()]
+            if key not in self._hist:
+                if fetched >= (MONTH_FETCH_MAX if self._live_now else 31):
+                    return None
+                fetched += 1
+                try:
+                    data = self._get("/v2/pws/history/daily",
+                                     {**PWS_PARAMS, "stationId": station, "date": key[1]}, now)
+                except RuntimeError:
+                    return None                  # retry on a later refresh
+                if data is None:                 # budget spent
+                    return None
+                rows = (data or {}).get("observations") or []
+                self._hist[key] = (_num((rows[0].get("metric") or {}).get("precipTotal"))
+                                   if rows else None)
+            mm = self._hist[key]
+            if mm is None:
+                missing += 1
+            else:
+                total += mm
+        today_mm = _num((obs.get("metric") or {}).get("precipTotal"))
+        if today_mm is None:
+            missing += 1
+        else:
+            total += today_mm
+        return total, missing
+
     def _forecast(self, obs: dict, now: datetime) -> dict:
         """TWC 5-day forecast at the station's own geocode, cached 30 min."""
         geo = f"{obs.get('lat')},{obs.get('lon')}"
@@ -327,6 +417,7 @@ class WundergroundBox:
                         0 <= (now - self._tried_at).total_seconds() < self.live_ttl:
                     return self._fresh(now)
                 self._tried_at = now        # one attempt per TTL, failures too
+                self._live_now = live
                 station = self._station(now)
                 obs = self._observation(station, now) if station else None
                 if obs is None:             # budget spent or the call failed
@@ -382,6 +473,12 @@ class WundergroundBox:
             facts.append([t["wind"], text])
         if total is not None:
             facts.append([t["rain"], f"{fmt(total)} mm" + (f" · {fmt(rate)} mm/h" if raining else "")])
+        month = self._month_rain(station, obs, now) if self.month_rain_on else None
+        if month is not None:
+            mm, gaps = month
+            facts.append([t["rain_month"], f"{fmt(mm)} mm"
+                          + (f" · {t['missing_day'] if gaps == 1 else t['missing_days'].format(n=gaps)}"
+                             if gaps else "")])
         sm = summary.get("metric") or {}
         hi, lo = _num(sm.get("tempHigh")), _num(sm.get("tempLow"))
         if hi is not None and lo is not None:

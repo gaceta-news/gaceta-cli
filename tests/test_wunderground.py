@@ -25,12 +25,18 @@ FIX = Path(__file__).parent / "fixtures" / "wunderground"
 NOW = datetime(2026, 11, 22, 18, 5, tzinfo=timezone.utc)
 
 
+@pytest.fixture(autouse=True)
+def _private_home(monkeypatch, tmp_path):
+    """The default day cache lives under ~/.cache: keep tests off the real one."""
+    monkeypatch.setenv("HOME", str(tmp_path))
+
+
 def load(name: str):
     return json.loads((FIX / name).read_text(encoding="utf-8"))
 
 
 def fake(monkeypatch, *, calls=None, current=None, summary=None, forecast=None,
-         near=None, fail=()):
+         near=None, history=None, fail=()):
     """Serve fixture JSON by URL shape; ``fail`` holds URL substrings whose
     calls raise an URLError carrying the full URL (as the real one can)."""
 
@@ -51,6 +57,10 @@ def fake(monkeypatch, *, calls=None, current=None, summary=None, forecast=None,
             body = load(default) if forecast is None else forecast
         elif "location/near" in path:
             body = load("near.json") if near is None else near
+        elif "history/daily" in path:          # closed days of the month: 1 mm each
+            day = parse_qs(urlparse(url).query).get("date", [""])[0]
+            mm = (history or {}).get(day, 1.0)
+            body = {"observations": [] if mm is None else [{"metric": {"precipTotal": mm}}]}
         else:
             raise AssertionError(f"unexpected call to {path}")
         payload = body if isinstance(body, bytes) else json.dumps(body).encode()
@@ -62,7 +72,8 @@ def fake(monkeypatch, *, calls=None, current=None, summary=None, forecast=None,
 def make(monkeypatch, table=None, *, calls=None, **bodies):
     monkeypatch.setenv("WU_API_KEY", "TESTKEY123")
     fake(monkeypatch, calls=calls, **bodies)
-    return wu.WundergroundBox({"station_id": "IEXAMPLE1", **(table or {})})
+    # cache_dir "" keeps tests off the real disk cache (own test below)
+    return wu.WundergroundBox({"station_id": "IEXAMPLE1", "cache_dir": "", **(table or {})})
 
 
 def params(url: str) -> dict:
@@ -81,6 +92,7 @@ def test_station_id_box_in_spanish(monkeypatch):
         ["Humedad", "66 %"],
         ["Viento", "3 km/h N · ráfaga 12"],
         ["Lluvia hoy", "0,3 mm"],
+        ["Lluvia del mes", "17,2 mm"],
         ["Máx / mín hoy", "18,7° / 11,6°"],                    # observed, 7-day summary
         ["Presión", "1004 hPa"],
         ["UV", "3"],
@@ -99,6 +111,7 @@ def test_box_in_english(monkeypatch):
         ["Humidity", "66%"],
         ["Wind", "3 km/h N · gust 12"],
         ["Rain today", "0.3 mm"],
+        ["Rain this month", "17.2 mm"],
         ["High / low today", "18.7° / 11.6°"],
         ["Pressure", "1004 hPa"],
         ["UV", "3"],
@@ -279,7 +292,7 @@ def test_forecast_failure_degrades_gracefully(monkeypatch):
 # ------------------------------------------------- live(): cache and budget
 def test_live_refetches_the_observation_only(monkeypatch):
     calls = []
-    wub = make(monkeypatch, calls=calls)
+    wub = make(monkeypatch, {"month_rain": False}, calls=calls)   # month: own tests
     first = wub.live(NOW)
     assert first is not None
 
@@ -351,7 +364,7 @@ def test_box_passes_the_engine_contract(monkeypatch):
     from gaceta import conditions
     from gaceta.render import icons
     box = conditions.clean_box(make(monkeypatch).box(NOW), name="wu", label="private")
-    assert box is not None and len(box["facts"]) == 8 <= conditions.MAX_FACTS
+    assert box is not None and len(box["facts"]) == 9 <= conditions.MAX_FACTS
     assert icons.svg(box["icon"]) and box["ear"] == "19°"
     datetime.fromisoformat(box["observed_at"])
 
@@ -360,3 +373,56 @@ def test_every_mapped_icon_exists_in_render():
     from gaceta.render import icons
     for name in wu.ICON_BY_CODE.values():
         assert name == "" or name in icons.ICONS
+
+
+# ---------------------------------------------------------- month's rain
+def test_month_rain_sums_closed_days_once_plus_today(monkeypatch):
+    calls = []
+    box = make(monkeypatch, calls=calls).box(NOW)
+    summ = {r["obsTimeLocal"][:10]: r["metric"]["precipTotal"] for r in load("daily7.json")["summaries"]}
+    covered = [d for d in summ if d.startswith("2026-11-") and d < "2026-11-22"]
+    hist = [u for u in calls if "history/daily" in u]
+    assert len(hist) == 21 - len(covered)          # summaries save calls
+    expected = len(hist) * 1.0 + sum(summ[d] for d in covered) + 0.3
+    row = dict((r[0], r[1]) for r in box["facts"])["Lluvia del mes"]
+    assert row == f"{expected:.1f} mm".replace(".", ",")
+
+
+def test_month_rain_never_refetches_and_reports_gaps(monkeypatch):
+    calls = []
+    b = make(monkeypatch, calls=calls, history={"20261103": None})
+    first = b.box(NOW)
+    row = dict((r[0], r[1]) for r in first["facts"])["Lluvia del mes"]
+    assert row.endswith("falta 1 día")           # a missing day is not zero
+    n = len([u for u in calls if "history/daily" in u])
+    b.box(NOW + timedelta(minutes=2))
+    assert len([u for u in calls if "history/daily" in u]) == n
+
+
+def test_month_rain_live_is_capped_and_omits_partial_sums(monkeypatch):
+    calls = []
+    b = make(monkeypatch, calls=calls)
+    box = b.live(NOW)
+    assert "Lluvia del mes" not in dict((r[0], r[1]) for r in box["facts"])
+    assert len([u for u in calls if "history/daily" in u]) == wu.MONTH_FETCH_MAX
+    box = b.live(NOW + timedelta(seconds=b.live_ttl + 1))
+    assert "Lluvia del mes" in dict((r[0], r[1]) for r in box["facts"])
+
+
+def test_month_rain_can_be_disabled(monkeypatch):
+    calls = []
+    box = make(monkeypatch, {"month_rain": False}, calls=calls).box(NOW)
+    assert not [u for u in calls if "history/daily" in u]
+    assert "Lluvia del mes" not in dict((r[0], r[1]) for r in box["facts"])
+
+
+def test_month_rain_closed_days_persist_across_processes(monkeypatch, tmp_path):
+    calls = []
+    make(monkeypatch, {"cache_dir": str(tmp_path)}, calls=calls).box(NOW)
+    assert (tmp_path / "wunderground-days.json").is_file()
+    first = len([u for u in calls if "history/daily" in u])
+    assert first > 0
+    calls.clear()                                   # a new edition build: fresh instance
+    box = make(monkeypatch, {"cache_dir": str(tmp_path)}, calls=calls).box(NOW)
+    assert not [u for u in calls if "history/daily" in u]
+    assert dict((r[0], r[1]) for r in box["facts"])["Lluvia del mes"] == "17,2 mm"
