@@ -279,3 +279,37 @@ def test_api_readers_lists_household(server):
     data = json.loads(body)
     assert data["owner"] == "Test Reader"
     assert data["household"] == ["Bob"]
+
+
+# ------------------------------------------------------------------ locking
+
+def test_store_uses_wal_and_busy_timeout(server):
+    _, env, _ = server
+    assert env.conn.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    assert env.conn.execute("PRAGMA busy_timeout").fetchone()[0] >= 10_000
+
+
+def test_api_answers_while_edition_build_holds_write_lock(server):
+    """Regression (22-nov): an edition build writing for minutes plus the
+    server's per-request schema writes deadlocked the rollback-journal file;
+    every /api/* returned 500 'OperationalError' and the reaction bar vanished.
+    Now: WAL (readers never wait for the writer) + init once per process."""
+    import sqlite3
+    import time
+
+    port, env, _ = server
+    reader = env.cfg["id"]
+    assert req(port, "GET", f"/api/state?reader={reader}&by=Bob")[0] == 200
+    writer = sqlite3.connect(env.data_dir / "gaceta.db", timeout=1)
+    try:
+        writer.execute("BEGIN EXCLUSIVE")
+        writer.execute("INSERT INTO meta (k, v) VALUES ('lock-test', '1')")
+        t0 = time.monotonic()
+        for path in (f"/api/state?reader={reader}&by=Bob",
+                     f"/api/readers?reader={reader}"):
+            status, _, body = req(port, "GET", path)
+            assert status == 200, body
+        assert time.monotonic() - t0 < 3  # no busy-wait: reads don't touch the write lock
+    finally:
+        writer.rollback()
+        writer.close()

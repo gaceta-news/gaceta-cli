@@ -126,10 +126,23 @@ class State:
     def __init__(self, data_dir: Path):
         self.data_dir = Path(data_dir)
         self.lock = threading.Lock()
+        self._init_lock = threading.Lock()
+        self._initialized = False
 
     def connect(self) -> sqlite3.Connection:
+        """A fresh connection per request. Schema init/migrations (which write)
+        run once per server process, not on every request: per-request init
+        made every page load a writer competing with the edition build."""
         conn = db.connect(self.data_dir / "gaceta.db")
-        db.init(conn)
+        if not self._initialized:
+            with self._init_lock:
+                if not self._initialized:
+                    try:
+                        db.init(conn)
+                    except BaseException:
+                        conn.close()
+                        raise
+                    self._initialized = True
         return conn
 
 

@@ -397,9 +397,13 @@ def cmd_media(args) -> int:
         )
     finally:
         conn.close()
-    rows = db.connect(_db_path()).execute(
-        "SELECT kind, status, COUNT(*) AS n FROM media GROUP BY kind, status ORDER BY kind, status"
-    ).fetchall()
+    conn = db.connect(_db_path())
+    try:
+        rows = conn.execute(
+            "SELECT kind, status, COUNT(*) AS n FROM media GROUP BY kind, status ORDER BY kind, status"
+        ).fetchall()
+    finally:
+        conn.close()
     summary = ", ".join(f"{r['kind']}/{r['status']}={r['n']}" for r in rows) or "none"
     print(
         f"media reader={args.reader} days={args.days}: {result['candidates']} candidate items, "
