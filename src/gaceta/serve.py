@@ -19,12 +19,13 @@ import sqlite3
 import sys
 import threading
 import time
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import config, db, i18n
+from . import conditions, config, db, i18n, privacy
 
 ALLOWED_HOSTS = ("127.0.0.1", "::1", "localhost")
 DEFAULT_PORT = 8711
@@ -55,6 +56,7 @@ CSP = ("default-src 'self'; img-src 'self' https:; media-src https:; "
        "style-src 'self' 'unsafe-inline'")
 
 REACT_TAG = '<script src="/static/react.js" defer></script>'
+LIVE_TAG = '<script src="/static/live.js" defer></script>'
 
 
 def validate_host(host: str) -> str:
@@ -66,11 +68,14 @@ def validate_host(host: str) -> str:
 
 
 def inject_react(html: str) -> str:
-    """Add the page strings (in the document's <html lang>) and the reaction script
-    before </body> (once) and rebase media src to /media/."""
+    """Add the page strings (in the document's <html lang>) and the reaction
+    script before </body> (once), plus live.js when the page carries a live
+    condiciones box (data-live), and rebase media src to /media/."""
     if "/static/react.js" not in html:
         l10n = i18n.js_script(i18n.html_lang(html))
         html = html.replace("</body>", f"{l10n}{REACT_TAG}</body>", 1)
+    if "/static/live.js" not in html and 'data-live="1"' in html:
+        html = html.replace("</body>", f"{LIVE_TAG}</body>", 1)
     return html.replace('src="../media/', 'src="/media/')
 
 
@@ -128,6 +133,9 @@ class State:
         self.lock = threading.Lock()
         self._init_lock = threading.Lock()
         self._initialized = False
+        # live condiciones for the whole server process: one provider instance
+        # per (reader, box) with a TTL + negative cache (conditions.py)
+        self.live = conditions.LiveConditions()
 
     def connect(self) -> sqlite3.Connection:
         """A fresh connection per request. Schema init/migrations (which write)
@@ -195,6 +203,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._get_index()
             if path == "/static/react.js":
                 return self._get_react_js()
+            if path == "/static/live.js":
+                return self._get_live_js()
             if path.startswith("/media/"):
                 return self._get_media(path[len("/media/"):])
             if path.startswith("/r/"):
@@ -213,6 +223,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._error(405, "POST only")
             if path == "/api/state":
                 return self._api_state()
+            if path == "/api/conditions":
+                return self._api_conditions()
             if path == "/api/readers":
                 return self._api_readers()
             return self._error(404, "not found")
@@ -276,6 +288,11 @@ class Handler(BaseHTTPRequestHandler):
 
     def _get_react_js(self) -> None:
         data = (resources.files("gaceta") / "static" / "react.js").read_bytes()
+        self._send(200, data, "application/javascript; charset=utf-8",
+                   cache="no-cache")
+
+    def _get_live_js(self) -> None:
+        data = (resources.files("gaceta") / "static" / "live.js").read_bytes()
         self._send(200, data, "application/javascript; charset=utf-8",
                    cache="no-cache")
 
@@ -852,6 +869,38 @@ class Handler(BaseHTTPRequestHandler):
         except (OSError, KeyError):
             pass
         return self._json(200, {"ok": True, "owner": owner, "household": household})
+
+    def _api_conditions(self) -> None:
+        """Live condiciones fragments (conditions.py): GET
+        /api/conditions?reader=<r>&max_privacy=<level> → {"boxes": [
+        {"id", "html", "ear_html" (or null), "observed_at"}], "now"}, rendered
+        in the reader's language, no-store. max_privacy defaults to public
+        (unknown → public). A provider that fails is simply omitted — a number
+        never turns this into a 500."""
+        q = parse_qs(urlsplit(self.path).query)
+        reader = (q.get("reader") or [""])[0]
+        if not READER_RE.match(reader):
+            return self._error(400, "bad reader")
+        level = (q.get("max_privacy") or [""])[0].strip().lower()
+        if level not in privacy.LEVELS:
+            level = "public"
+        conn = self.state.connect()
+        try:
+            if conn.execute("SELECT 1 FROM readers WHERE id = ?", (reader,)).fetchone() is None:
+                return self._error(404, "unknown reader")
+        finally:
+            conn.close()
+        cfg = _reader_cfg(reader, self.state.data_dir)
+        now = datetime.now().astimezone()
+        try:
+            boxes = self.state.live.live_boxes(reader, cfg, max_privacy=level, now=now)
+            from .render.html import render_cond_fragments
+            fragments = render_cond_fragments(boxes, now=now.isoformat(),
+                                              lang=i18n.reader_lang(cfg))
+        except Exception as e:  # noqa: BLE001 — never 500 on a number
+            print(f"conditions: live render failed ({type(e).__name__}: {e})", file=sys.stderr)
+            fragments = []
+        self._json(200, {"boxes": fragments, "now": now.isoformat()})
 
 
 class Server(ThreadingHTTPServer):

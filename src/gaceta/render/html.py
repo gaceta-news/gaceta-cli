@@ -490,6 +490,7 @@ body { padding-bottom: 4rem; }
   .ear-note { display: inline; margin-left: 0.35rem; }
 }
 .cond-stamp { margin: 0.45rem 0 0; color: var(--muted); font-size: 0.72rem; letter-spacing: 0.03em; }
+.cond-stamp.stale { opacity: 0.7; font-style: italic; }
 .discovery .src-entry { padding-top: .9rem; border-top: 1px solid var(--rule); }
 .discovery .src-entry + .src-entry { margin-top: .9rem; }
 .discovery .src-head { margin: 0; overflow-wrap: anywhere; }
@@ -1111,55 +1112,128 @@ def _cond_anchor(box: dict) -> str:
     return "cond-" + (re.sub(r"[^a-z0-9_-]", "", str(box.get("id") or "").lower()) or "box")
 
 
+LIVE_STALE_AFTER = 20 * 60  # seconds: past this, a live box admits its age
+
+
+def _age_seconds(observed: object, now: object) -> float | None:
+    """Seconds from an ISO datetime to another; None when unparsable."""
+    try:
+        return (datetime.fromisoformat(str(now)) - datetime.fromisoformat(str(observed))).total_seconds()
+    except (ValueError, TypeError):
+        return None
+
+
 def _visible_conditions(edition: dict, max_level: str) -> list[dict]:
     return [box for box in edition.get("conditions") or []
             if isinstance(box, dict) and box.get("title")
             and privacy.allowed(box.get("privacy"), max_level)]
 
 
+def render_cond_ear(box: dict, *, live: bool = False) -> str:
+    """The nameplate's ear for one box, or ''. Live-capable boxes carry the
+    hook live.js swaps by: id + data-cond pointing at the box's anchor."""
+    ear = str(box.get("ear") or "").strip()
+    if not ear:
+        return ""
+    anchor = _cond_anchor(box)
+    note = str(box.get("ear_note") or "").strip()
+    note_html = f'<span class="ear-note">{_esc(note)}</span>' if note else ""
+    hook = f' id="cond-ear" data-cond="{anchor}"' if (live or box.get("live")) else ""
+    return (f'<a class="ear"{hook} href="#{anchor}" title="{_esc(box["title"])}">'
+            f'{icons.svg(box.get("icon"))}<span><span class="ear-temp">{_esc(ear)}</span>'
+            f"{note_html}</span></a>")
+
+
 def _render_ear(edition: dict, max_level: str) -> str:
     """The nameplate's weather ear: the first visible box that offers one."""
     for box in _visible_conditions(edition, max_level):
-        ear = str(box.get("ear") or "").strip()
-        if not ear:
-            continue
-        note = str(box.get("ear_note") or "").strip()
-        note_html = f'<span class="ear-note">{_esc(note)}</span>' if note else ""
-        return (f'<a class="ear" href="#{_cond_anchor(box)}" title="{_esc(box["title"])}">'
-                f'{icons.svg(box.get("icon"))}<span><span class="ear-temp">{_esc(ear)}</span>'
-                f"{note_html}</span></a>")
+        ear = render_cond_ear(box)
+        if ear:
+            return ear
     return ""
+
+
+def render_cond_box(box: dict, *, built_at: object = None, now: object = None,
+                    live: bool = False) -> str:
+    """One condiciones box as HTML — the single source of markup for both the
+    build-time snapshot and the server's live fragment, so a swap is exact.
+    A snapshot keeps the honest "a las HH:MM, no en vivo" stamp (falling back
+    to the build time); a live-rendered box (live=True) stamps "en vivo ·
+    HH:MM" at the observation time, or "último dato HH:MM", muted, once the
+    observation is older than 20 minutes. Live-capable boxes carry data-live
+    (what wires live.js) and data-observed (how it ages the snapshot)."""
+    anchor = _cond_anchor(box)
+    observed = str(box.get("observed_at") or "")
+    wired = bool(live or box.get("live"))
+    open_tag = f'<div class="cond-box" id="{anchor}"'
+    if wired:
+        open_tag += f' data-live="1" data-observed="{_esc(observed or (str(now or "") if live else str(built_at or "")))}"'
+    parts = [open_tag + ">", f'<h2>{_esc(box["title"])}</h2>']
+    if box.get("lead"):
+        parts.append(f'<p class="cond-lead">{icons.svg(box.get("icon"))}{_esc(box["lead"])}</p>')
+    facts = [row for row in box.get("facts") or []
+             if isinstance(row, (list, tuple)) and len(row) in (2, 3)]
+    if facts:
+        parts.append('<dl class="cond-facts">')
+        parts.extend(f"<div><dt>{_esc(row[0])}</dt><dd>"
+                     f"{icons.svg(row[2]) if len(row) == 3 else ''}{_esc(row[1])}</dd></div>"
+                     for row in facts)
+        parts.append("</dl>")
+    stamp_bits: list[str] = []
+    stamp_class = "cond-stamp"
+    if live:
+        hhmm = _hhmm(observed) or _hhmm(now)
+        age = _age_seconds(observed, now) if observed else None
+        if age is not None and age > LIVE_STALE_AFTER:
+            stamp_bits.append(_t("conditions.stale", time=hhmm))
+            stamp_class += " stale"
+        elif hhmm:
+            stamp_bits.append(_t("conditions.live", time=hhmm))
+        else:
+            stamp_bits.append(_t("conditions.live", time="").rstrip(" ·"))
+    else:
+        hhmm = _hhmm(observed) or _hhmm(built_at)
+        stamp_bits.append(_t("conditions.stamp", time=hhmm) if hhmm else _t("conditions.not_live"))
+    if box.get("source"):
+        stamp_bits.append(str(box["source"]))
+    parts.append(f'<p class="{stamp_class}">{_esc(" · ".join(stamp_bits))}</p>')
+    parts.append("</div>")
+    return "\n".join(parts)
 
 
 def _render_conditions(edition: dict, max_level: str) -> str:
     """Condiciones boxes (conditions.py): snapshot numbers, stamped with the
-    capture time and the source, never live. Boxes above max_level are dropped
-    silently (fail closed: unknown privacy counts as private)."""
-    boxes = []
-    for box in _visible_conditions(edition, max_level):
-        anchor = _cond_anchor(box)
-        parts = [f'<div class="cond-box" id="{anchor}">', f'<h2>{_esc(box["title"])}</h2>']
-        if box.get("lead"):
-            parts.append(f'<p class="cond-lead">{icons.svg(box.get("icon"))}{_esc(box["lead"])}</p>')
-        facts = [row for row in box.get("facts") or []
-                 if isinstance(row, (list, tuple)) and len(row) in (2, 3)]
-        if facts:
-            parts.append('<dl class="cond-facts">')
-            parts.extend(f"<div><dt>{_esc(row[0])}</dt><dd>"
-                         f"{icons.svg(row[2]) if len(row) == 3 else ''}{_esc(row[1])}</dd></div>"
-                         for row in facts)
-            parts.append("</dl>")
-        hhmm = _hhmm(box.get("observed_at")) or _hhmm(edition.get("built_at"))
-        stamp = [_t("conditions.stamp", time=hhmm) if hhmm else _t("conditions.not_live")]
-        if box.get("source"):
-            stamp.append(str(box["source"]))
-        parts.append(f'<p class="cond-stamp">{_esc(" · ".join(stamp))}</p>')
-        parts.append("</div>")
-        boxes.append("\n".join(parts))
+    capture time and the source. Boxes above max_level are dropped silently
+    (fail closed: unknown privacy counts as private). When any visible box is
+    live-capable, the aside carries this render's reader + level, so live.js
+    asks /api/conditions for exactly this page."""
+    boxes = _visible_conditions(edition, max_level)
     if not boxes:
         return ""
-    return (f'<aside class="conditions" aria-label="{_esc(_t("conditions"))}">\n'
-            + "\n".join(boxes) + "\n</aside>")
+    rendered = [render_cond_box(box, built_at=edition.get("built_at")) for box in boxes]
+    attrs = ""
+    if any(box.get("live") for box in boxes):
+        reader_id = str((edition.get("reader") or {}).get("id") or "")
+        attrs = f' data-reader="{_esc(reader_id)}" data-max-privacy="{_esc(max_level)}"'
+    return (f'<aside class="conditions"{attrs} aria-label="{_esc(_t("conditions"))}">\n'
+            + "\n".join(rendered) + "\n</aside>")
+
+
+def render_cond_fragments(boxes: list[dict], *, now: str, lang: str) -> list[dict]:
+    """Live fragments for /api/conditions, rendered in the reader's language:
+    [{"id", "html", "ear_html" (or null), "observed_at"}]. The client swaps
+    them into the snapshot page; the markup is the renderer's own escaped
+    output, never provider HTML."""
+    token = _LANG.set(i18n.normalize(lang))
+    try:
+        return [{
+            "id": str(box.get("id") or ""),
+            "html": render_cond_box(box, now=now, live=True),
+            "ear_html": render_cond_ear(box, live=True) or None,
+            "observed_at": str(box.get("observed_at") or "") or None,
+        } for box in boxes if isinstance(box, dict) and box.get("title")]
+    finally:
+        _LANG.reset(token)
 
 
 def _render_section(section: dict, stories: dict, media_prefix: str = "../media/") -> str:

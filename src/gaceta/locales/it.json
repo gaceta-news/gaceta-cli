@@ -126,6 +126,8 @@
     "conditions": "Condizioni",
     "conditions.stamp": "alle {time}, non in diretta",
     "conditions.not_live": "non in diretta",
+    "conditions.live": "in diretta · {time}",
+    "conditions.stale": "ultimo dato {time}",
     "reason.portada_recent": "Già in prima pagina ({v})",
     "reason.portada_rest": "In prima pagina da varie edizioni; oggi riposa"
   },
@@ -187,6 +189,7 @@
     "who.name": "il tuo nome",
     "fresh": "Nuova edizione ↻",
     "fresh.aria": "C'è un'edizione più recente: ricarica",
+    "conditions.stale": "ultimo dato {time}",
     "boot.retry": "Non ho potuto scaricare quel che hai già visto — riprovo…",
     "boot.offline": "Nessuna connessione con la gazzetta: tutto appare come nuovo"
   }

@@ -126,6 +126,8 @@
     "conditions": "Condições",
     "conditions.stamp": "às {time}, não ao vivo",
     "conditions.not_live": "não ao vivo",
+    "conditions.live": "ao vivo · {time}",
+    "conditions.stale": "último dado {time}",
     "reason.portada_recent": "Já esteve na primeira página ({v})",
     "reason.portada_rest": "Liderou as primeiras páginas recentes; hoje descansa"
   },
@@ -187,6 +189,7 @@
     "who.name": "seu nome",
     "fresh": "Edição nova ↻",
     "fresh.aria": "Há uma edição mais recente: recarregar",
+    "conditions.stale": "último dado {time}",
     "boot.retry": "Não consegui trazer o que você já viu — tentando de novo…",
     "boot.offline": "Sem conexão com a gaceta: tudo aparece como novo"
   }

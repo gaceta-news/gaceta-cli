@@ -567,7 +567,8 @@ def build_edition(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
     )
     if disc:
         edition["discovery"] = disc
-    # condiciones: moving numbers captured at build time, never live (conditions.py)
+    # condiciones: moving numbers captured at build time; a provider with
+    # live() marks its box so the served page can refresh it (conditions.py)
     boxes = conditions.collect(cfg, max_privacy=max_privacy,
                                now=datetime.fromtimestamp(built_ts).astimezone())
     if boxes:

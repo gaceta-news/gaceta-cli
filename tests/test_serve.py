@@ -9,6 +9,7 @@ import threading
 
 import pytest
 
+from gaceta import conditions
 from gaceta.edition import build_edition
 from gaceta.editor import cluster as run_cluster
 from gaceta.editor.cluster import embed_items
@@ -313,3 +314,131 @@ def test_api_answers_while_edition_build_holds_write_lock(server):
     finally:
         writer.rollback()
         writer.close()
+
+
+# ------------------------------------------------------- live condiciones
+
+class _LiveWx:
+    """Fake live provider: returns a box with markup-looking text (the renderer
+    must escape it) and an ear, and counts live() calls."""
+    live_calls = 0
+
+    def __init__(self, table):
+        self.table = table
+
+    def box(self, now):
+        return {"title": "El tiempo", "lead": "10 °C",
+                "observed_at": "2026-11-19T06:25:00-05:00"}
+
+    def live(self, now):
+        type(self).live_calls += 1
+        return {"title": "El tiempo", "lead": "21 °C · <script>marker()</script>",
+                "facts": [["Viento", "calma"]], "ear": "21°", "ear_note": "máx 24°",
+                "observed_at": now.isoformat(), "source": "estación propia"}
+
+
+class _LiveBroken:
+    """Live provider whose source is down: the box is omitted, never a 500."""
+
+    def __init__(self, table):
+        pass
+
+    def box(self, now):
+        return {"title": "x", "lead": "y"}
+
+    def live(self, now):
+        raise RuntimeError("feed offline")
+
+
+def _cond_toml(env, text):
+    toml = env.data_dir / "readers" / env.cfg["id"] / "reader.toml"
+    toml.write_text(toml.read_text(encoding="utf-8") + text, encoding="utf-8")
+
+
+def test_api_conditions_end_to_end_with_live_provider(server, monkeypatch):
+    """A provider with live() flows all the way through /api/conditions: the
+    server calls it, cleans the box, renders the fragment in the reader's
+    language, and the TTL cache holds it for the next hit."""
+    port, env, ed = server
+    monkeypatch.setattr(conditions, "providers", lambda: {"wx": f"{__name__}:_LiveWx"})
+    _cond_toml(env, '\n[conditions.wx]\nprivacy = "public"\n')
+    _LiveWx.live_calls = 0
+    status, hdrs, body = req(port, "GET",
+                             f"/api/conditions?reader={env.cfg['id']}&max_privacy=public")
+    assert status == 200
+    assert "no-store" in hdrs["cache-control"]
+    data = json.loads(body)
+    assert set(data) == {"boxes", "now"} and "T" in data["now"]
+    [box] = data["boxes"]
+    assert box["id"] == "wx" and _LiveWx.live_calls == 1
+    assert box["observed_at"] and box["observed_at"].startswith(data["now"][:10])
+    assert 'id="cond-wx" data-live="1"' in box["html"]
+    assert "21 °C · &lt;script&gt;marker()&lt;/script&gt;" in box["html"]
+    assert "<script>marker()" not in box["html"]       # escaped by the renderer
+    assert "en vivo ·" in box["html"]                  # reader's language (es)
+    assert box["ear_html"].startswith(
+        '<a class="ear" id="cond-ear" data-cond="cond-wx"')
+    # the per-box TTL cache: an immediate second hit doesn't re-call live()
+    req(port, "GET", f"/api/conditions?reader={env.cfg['id']}")
+    assert _LiveWx.live_calls == 1
+
+
+def test_api_conditions_privacy_levels_and_errors(server, monkeypatch):
+    port, env, ed = server
+    monkeypatch.setattr(conditions, "providers", lambda: {"wx": f"{__name__}:_LiveWx"})
+    _cond_toml(env, ('\n[conditions.wx]\nprivacy = "public"\n\n'
+                     '[conditions.casa]\nprivacy = "household"\nprovider = "wx"\n'))
+    # default and unknown max_privacy → public: only the public box
+    for qs in ("", "&max_privacy=zzz"):
+        status, _, body = req(port, "GET", f"/api/conditions?reader={env.cfg['id']}{qs}")
+        assert status == 200, (qs, body)
+        assert [b["id"] for b in json.loads(body)["boxes"]] == ["wx"], (qs, body)
+    # explicit private: both boxes, in config order
+    _, _, body = req(port, "GET",
+                     f"/api/conditions?reader={env.cfg['id']}&max_privacy=private")
+    assert [b["id"] for b in json.loads(body)["boxes"]] == ["wx", "casa"]
+    # unknown reader → 404, bad slug → 400
+    assert req(port, "GET", "/api/conditions?reader=ghost")[0] == 404
+    assert req(port, "GET", "/api/conditions?reader=../evil")[0] == 400
+
+
+def test_api_conditions_provider_failure_never_500s(server, monkeypatch):
+    port, env, ed = server
+    monkeypatch.setattr(conditions, "providers", lambda: {"wx": f"{__name__}:_LiveBroken"})
+    _cond_toml(env, '\n[conditions.wx]\nprivacy = "public"\n')
+    status, _, body = req(port, "GET", f"/api/conditions?reader={env.cfg['id']}")
+    assert status == 200
+    data = json.loads(body)
+    assert data["boxes"] == [] and "now" in data
+
+
+def test_live_js_injected_only_when_needed():
+    tag = '<script src="/static/live.js" defer></script>'
+    page = ('<html><body><aside class="conditions" data-reader="r" '
+            'data-max-privacy="public"><div class="cond-box" data-live="1" '
+            'id="cond-wx"></div></aside></body></html>')
+    out = inject_react(page)
+    assert out.count(tag) == 1
+    assert out.count('<script src="/static/react.js" defer></script>') == 1
+    assert inject_react(out) == out  # idempotent
+    snap = inject_react('<html><body><div class="cond-box" id="cond-w"></div></body></html>')
+    assert tag not in snap
+
+
+def test_served_live_page_gets_live_js(server):
+    port, env, ed = server
+    site = env.data_dir / "site" / env.cfg["id"]
+    (site / "2002-02-02.html").write_text(
+        "<html><body><aside class=\"conditions\" data-reader=\"x\">"
+        '<div class="cond-box" data-live="1">hi</div></aside></body></html>',
+        encoding="utf-8")
+    _, _, body = req(port, "GET", f"/r/{env.cfg['id']}/2002-02-02.html")
+    assert b"/static/live.js" in body
+
+
+def test_static_live_js_served(server):
+    port, env, ed = server
+    status, hdrs, body = req(port, "GET", "/static/live.js")
+    assert status == 200 and "javascript" in hdrs["content-type"]
+    assert b"cond-ear" in body and b"/api/conditions" in body
+    assert b"file:" in body  # never runs from a static export

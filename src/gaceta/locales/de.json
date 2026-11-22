@@ -126,6 +126,8 @@
     "conditions": "Bedingungen",
     "conditions.stamp": "um {time}, nicht live",
     "conditions.not_live": "nicht live",
+    "conditions.live": "live · {time}",
+    "conditions.stale": "letzte Messung {time}",
     "reason.portada_recent": "War schon auf Seite eins ({v})",
     "reason.portada_rest": "War zuletzt oft auf Seite eins; heute Pause"
   },
@@ -187,6 +189,7 @@
     "who.name": "dein Name",
     "fresh": "Neue Ausgabe ↻",
     "fresh.aria": "Eine neuere Ausgabe ist da: neu laden",
+    "conditions.stale": "letzte Messung {time}",
     "boot.retry": "Konnte nicht laden, was du schon gesehen hast — neuer Versuch…",
     "boot.offline": "Keine Verbindung zur Zeitung: alles erscheint als neu"
   }

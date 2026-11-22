@@ -1,0 +1,33 @@
+{
+ "observations": [
+  {
+   "stationID": "IEXAMPLE1",
+   "obsTimeUtc": "2026-11-22T18:03:32Z",
+   "obsTimeLocal": "2026-11-22 13:03:32",
+   "neighborhood": "Example Hill",
+   "softwareType": "EXAMPLE_FW_1.0",
+   "country": "GB",
+   "solarRadiation": 405.7,
+   "lon": -0.1276,
+   "realtimeFrequency": null,
+   "epoch": 1795370612,
+   "lat": 51.5072,
+   "uv": 3.0,
+   "winddir": 6,
+   "humidity": 66.0,
+   "qcStatus": 1,
+   "metric": {
+    "temp": 18.7,
+    "heatIndex": 18.7,
+    "dewpt": 12.2,
+    "windChill": 18.7,
+    "windSpeed": 3.2,
+    "windGust": 11.5,
+    "pressure": 1004.3,
+    "precipRate": 0.0,
+    "precipTotal": 0.3,
+    "elev": 35.0
+   }
+  }
+ ]
+}

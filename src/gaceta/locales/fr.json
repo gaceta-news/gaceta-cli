@@ -126,6 +126,8 @@
     "conditions": "Conditions",
     "conditions.stamp": "à {time}, pas en direct",
     "conditions.not_live": "pas en direct",
+    "conditions.live": "en direct · {time}",
+    "conditions.stale": "dernier relevé {time}",
     "reason.portada_recent": "Déjà à la une ({v})",
     "reason.portada_rest": "En une depuis plusieurs éditions ; au repos aujourd’hui"
   },
@@ -187,6 +189,7 @@
     "who.name": "ton nom",
     "fresh": "Nouvelle édition ↻",
     "fresh.aria": "Une édition plus récente est disponible : recharger",
+    "conditions.stale": "dernier relevé {time}",
     "boot.retry": "Impossible de récupérer ce que tu as déjà vu — nouvelle tentative…",
     "boot.offline": "Pas de connexion au journal : tout apparaît comme nouveau"
   }

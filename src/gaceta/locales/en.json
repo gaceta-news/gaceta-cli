@@ -126,6 +126,8 @@
     "conditions": "Conditions",
     "conditions.stamp": "at {time}, not live",
     "conditions.not_live": "not live",
+    "conditions.live": "live · {time}",
+    "conditions.stale": "last reading {time}",
     "reason.portada_recent": "Already on the front page ({v})",
     "reason.portada_rest": "Led recent front pages; resting today"
   },
@@ -187,6 +189,7 @@
     "who.name": "your name",
     "fresh": "New edition ↻",
     "fresh.aria": "A newer edition is available: reload",
+    "conditions.stale": "last reading {time}",
     "boot.retry": "Couldn't fetch what you've already seen — retrying…",
     "boot.offline": "No connection to the paper: everything shows as new"
   }
