@@ -12,7 +12,7 @@ from __future__ import annotations
 import html
 import re
 from contextvars import ContextVar
-from datetime import date, datetime
+from datetime import date, datetime, tzinfo
 from urllib.parse import urlsplit
 
 from .. import i18n, privacy
@@ -23,6 +23,8 @@ STATUS_KEYS = {"developing": "status.developing", "corrected": "status.corrected
 
 # interface language of the document being rendered (set by render / render_guardadas)
 _LANG: ContextVar[str] = ContextVar("gaceta_render_lang", default="es")
+_EDITION_OFFSET: ContextVar[tzinfo | None] = ContextVar("gaceta_edition_offset", default=None)
+_BUILT_AT: ContextVar[int | None] = ContextVar("gaceta_edition_built_at", default=None)
 
 
 def _t(key: str, n: int | None = None, **kw) -> str:
@@ -161,6 +163,11 @@ h1, h2, h3, h4 {
   line-height: 1.58;
 }
 .lead .summary { font-size: 1.12rem; }
+.story-update { margin: 0.65rem 0 0; padding-left: 0.7rem; border-left: 3px solid var(--accent); }
+.update-label { margin: 0; color: var(--accent); font-size: 0.75rem; font-weight: 700; }
+.story-update .summary { margin-top: 0.15rem; }
+.story-context { margin-top: 0.55rem; }
+.story-context > summary { color: var(--muted); font-size: 0.85rem; cursor: pointer; }
 .new-coverage {
   max-width: 68ch;
   margin: 0.55rem 0 0;
@@ -666,6 +673,31 @@ def _short_date(value: object) -> str:
         return text
 
 
+def _publication_day(value: object) -> date | None:
+    """Use the edition's civil day for timestamped sources; keep date-only values."""
+    text = str(value or "").strip()
+    try:
+        if len(text) == 10:
+            return date.fromisoformat(text)
+        stamp = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    offset = _EDITION_OFFSET.get()
+    if stamp.tzinfo is not None and offset is not None:
+        stamp = stamp.astimezone(offset)
+    return stamp.date()
+
+
+def _coverage_date(sources: list[dict]) -> str:
+    days = [day for source in sources if (day := _publication_day(source.get("published")))]
+    if not days:
+        return ""
+    day = max(days)
+    key = "story.published" if len(sources) == 1 else "story.latest_source"
+    label = _esc(i18n.day_month_year(_LANG.get(), day))
+    return f'<span class="coverage-date">{_esc(_t(key))} <time datetime="{day}">{label}</time></span>'
+
+
 def _safe_url(value: object) -> str | None:
     """Return the URL only when it is an http(s) URL with a host."""
     text = str(value or "").strip()
@@ -816,10 +848,11 @@ def _render_source(source: dict, media_prefix: str = "../media/") -> str:
         for key in ("author", "kind")
         if source.get(key) and str(source[key]).strip()
     ]
-    published = _short_date(source.get("published"))
-    if published:
-        meta_bits.append(published)
-    meta = _esc(" · ".join(meta_bits))
+    meta_bits = [_esc(bit) for bit in meta_bits]
+    if published := _publication_day(source.get("published")):
+        date_label = _esc(i18n.day_month_year(_LANG.get(), published))
+        meta_bits.append(f'<time datetime="{published}">{date_label}</time>')
+    meta = " · ".join(meta_bits)
     added = _count(source.get("added"))
     li = f'<li data-added="{added}">' if added else "<li>"
     if meta:
@@ -827,7 +860,7 @@ def _render_source(source: dict, media_prefix: str = "../media/") -> str:
     return f"{li}{thumb}{label}</li>"
 
 
-def _render_since(story: dict) -> str:
+def _render_since(story: dict, *, lead_note: str | None = None) -> str:
     """Hidden 'Desde que la viste' block. Only the page knows when this person
     marked the story seen (/api/state seen_at), so it ships every rewrite with
     its time and react.js shows the ones after that mark, plus the text they
@@ -841,7 +874,7 @@ def _render_since(story: dict) -> str:
     for h in history[1:]:
         at = _count(h.get("at"))
         text = str(h.get("what_changed") or "").strip()
-        if at and text:
+        if at and text and text != lead_note:
             parts.append(f'<li data-at="{at}">{_esc(text)}</li>')
     parts.append("</ul>")
     parts.append('<p class="since-note"></p>')
@@ -855,6 +888,39 @@ def _render_since(story: dict) -> str:
     return "\n".join(parts)
 
 
+def _recent_story_update(story: dict) -> tuple[str, int] | None:
+    """A substantive note on the latest version, as of this snapshot, not wall time."""
+    history = story.get("history") or []
+    built_at = _BUILT_AT.get()
+    if built_at is None or len(history) < 2:
+        return None
+    previous, latest = history[-2:]
+    at = _count(latest.get("at"))
+    since = _count(previous.get("at"))
+    note = str(latest.get("what_changed") or "").strip()
+    if note and at and since and since < at and 0 <= built_at - at < 86400:
+        return note, since
+    return None
+
+
+def _update_media(story: dict, since: int, media_prefix: str) -> list[dict]:
+    """Promote a distinct, locally cached image attached to newly added coverage."""
+    media = story.get("media") or []
+    old = {s.get("thumb") for s in story.get("sources") or []
+           if (_count(s.get("added")) or 0) <= since}
+    if media:
+        old.add(media[0].get("src"))
+    newest = sorted(story.get("sources") or [],
+                    key=lambda s: str(s.get("published") or ""), reverse=True)
+    for source in newest:
+        thumb = source.get("thumb")
+        added = _count(source.get("added")) or 0
+        if (since < added <= (_BUILT_AT.get() or 0) and thumb not in old
+                and str(thumb or "").startswith("media/") and _media_src(thumb, media_prefix)):
+            return [{"type": "image", "src": thumb, "alt": source.get("title") or ""}]
+    return []
+
+
 def _render_story(story_id: str, story: dict, *, lead: bool = False,
                   placement: str = "row", media_prefix: str = "../media/") -> str:
     """placement: 'lead' (portada head story, big media), 'card' (portada card,
@@ -864,9 +930,11 @@ def _render_story(story_id: str, story: dict, *, lead: bool = False,
     status = str(story.get("status") or "").strip().lower()
     badge = _t(STATUS_KEYS[status]) if status in STATUS_KEYS else ""
 
-    media_html = _lead_media_html(story, media_prefix) if lead else (
-        _thumb_media_html(story, media_prefix, "card-media") if placement == "card"
-        else _thumb_media_html(story, media_prefix, "story-thumb-wrap")
+    update = _recent_story_update(story)
+    visual_story = story if not update else {**story, "media": _update_media(story, update[1], media_prefix)}
+    media_html = _lead_media_html(visual_story, media_prefix) if lead else (
+        _thumb_media_html(visual_story, media_prefix, "card-media") if placement == "card"
+        else _thumb_media_html(visual_story, media_prefix, "story-thumb-wrap")
     )
     if placement == "row" and media_html:
         classes += " with-thumb"
@@ -889,16 +957,28 @@ def _render_story(story_id: str, story: dict, *, lead: bool = False,
         parts.append(f'<span class="badge">{_esc(badge)}</span>')
     parts.append("</header>")
 
-    if link:
-        host = _host(link)
-        if host:
-            parts.append(f'<p class="fuente">{_esc(_t("story.source"))} <a href="{_esc(link)}" '
-                         f'rel="noopener noreferrer">{_esc(host)}</a></p>')
-
-    if story.get("summary"):
-        parts.append(f'<p class="summary">{_esc(story.get("summary"))}</p>')
-
     sources = story.get("sources") or []
+    meta = []
+    host = _host(link) if link else ""
+    if host:
+        meta.append(f'{_esc(_t("story.source"))} <a href="{_esc(link)}" '
+                    f'rel="noopener noreferrer">{_esc(host)}</a>')
+    if coverage := _coverage_date(sources):
+        meta.append(coverage)
+    if meta:
+        parts.append(f'<p class="fuente">{" · ".join(meta)}</p>')
+
+    if update:
+        parts.append('<div class="story-update">'
+                     f'<p class="update-label">{_esc(_t("story.whats_new"))}</p>'
+                     f'<p class="summary">{_esc(update[0])}</p></div>')
+    if story.get("summary"):
+        summary = f'<p class="summary">{_esc(story.get("summary"))}</p>'
+        if update:
+            summary = (f'<details class="story-context"><summary>{_esc(_t("story.context"))}</summary>'
+                       f'{summary}</details>')
+        parts.append(summary)
+
     url = _safe_url(story.get("new_coverage"))
     if url:
         title = next((s.get("title") for s in sources if s.get("url") == url and s.get("title")), None)
@@ -906,7 +986,7 @@ def _render_story(story_id: str, story: dict, *, lead: bool = False,
             parts.append(f'<p class="new-coverage"><strong>{_esc(_t("story.coverage"))}</strong> '
                          f'<a href="{_esc(url)}" rel="noopener noreferrer">{_esc(title)}</a></p>')
 
-    since = _render_since(story)
+    since = _render_since(story, lead_note=update[0] if update else None)
     if since:
         parts.append(since)
 
@@ -1125,10 +1205,18 @@ def render(edition: dict, max_level: str, media_prefix: str = "../media/") -> st
     privacy labels count as ``private``).
     """
     reader = edition.get("reader") or {}
+    try:
+        stamp = datetime.fromisoformat(str(edition.get("built_at") or ""))
+    except ValueError:
+        stamp = None
     token = _LANG.set(i18n.reader_lang(reader))
+    offset_token = _EDITION_OFFSET.set(stamp.tzinfo if stamp else None)
+    built_token = _BUILT_AT.set(int(stamp.timestamp()) if stamp and stamp.tzinfo else None)
     try:
         return _render(edition, max_level, media_prefix)
     finally:
+        _BUILT_AT.reset(built_token)
+        _EDITION_OFFSET.reset(offset_token)
         _LANG.reset(token)
 
 
@@ -1194,9 +1282,9 @@ def _render(edition: dict, max_level: str, media_prefix: str) -> str:
             parts.append(f'<p class="dateline">{" · ".join(dateline)}</p>')
     updated = []
     built_hhmm = _hhmm(edition.get("built_at"))
-    if built_hhmm and not folio:
-        # with a folio row the window line ("24 h a las HH:MM") already says it
-        updated.append(_esc(_t("updated", time=built_hhmm)))
+    if built_hhmm:
+        built_at = _esc(edition["built_at"])
+        updated.append(f'<time datetime="{built_at}">{_esc(_t("updated", time=built_hhmm))}</time>')
     next_hhmm = _hhmm(edition.get("next_update"))
     if next_hhmm:
         updated.append(_esc(_t("next_update", time=next_hhmm)))

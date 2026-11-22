@@ -88,7 +88,8 @@ def _candidates(conn: sqlite3.Connection, reader_id: str, start: int, end: int) 
 def _story_items(conn: sqlite3.Connection, reader_id: str, story_id: str) -> list[dict]:
     rows = conn.execute(
         """
-        SELECT i.title, i.body, i.author, i.published, s.kind AS source_kind, a.note, a.item_privacy
+        SELECT i.title, i.body, i.author, i.published, i.ingested_at,
+               s.kind AS source_kind, a.note, a.item_privacy
         FROM story_items si
         JOIN items i ON i.id = si.item_id
         LEFT JOIN sources s ON s.id = i.source_id
@@ -160,8 +161,16 @@ def write_stories(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
             not privacy.allowed(it["item_privacy"], "public") for it in items
         )):
             continue
+        previous = conn.execute(
+            "SELECT written_at FROM story_versions WHERE story_id = ? ORDER BY version DESC LIMIT 1",
+            (story_id,),
+        ).fetchone()
+        if previous:
+            for item in items:
+                item["new_coverage"] = (item["ingested_at"] or 0) > previous["written_at"]
         messages = prompts.writeup_messages(
-            items, langs=langs, profile=profile, allow_private=chat.allow_private
+            items, langs=langs, profile=profile, allow_private=chat.allow_private,
+            followup=any(item.get("new_coverage") for item in items),
         )
         got = ask(messages)
         if got is None:
