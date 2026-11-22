@@ -28,10 +28,33 @@ MIGRATIONS = (
 )
 
 
+# How long a connection waits for another one's lock before raising
+# "database is locked". An edition build writes for minutes while `gaceta serve`
+# answers the page; both share this file.
+BUSY_TIMEOUT_S = 30.0
+
+
 def connect(path) -> sqlite3.Connection:
-    conn = sqlite3.connect(path)
-    conn.execute("PRAGMA foreign_keys = ON")
+    """Open gaceta's store.
+
+    WAL journal: readers (the served page, /api/state) never block the edition
+    writer and the writer never blocks them. With the old rollback journal a
+    long build plus the server's own writes deadlocked the file and every
+    /api/* call failed with OperationalError (the reaction bar vanished).
+    journal_mode=WAL is persistent in the file; setting it again is a no-op.
+    """
+    conn = sqlite3.connect(path, timeout=BUSY_TIMEOUT_S)
     conn.row_factory = sqlite3.Row
+    conn.execute(f"PRAGMA busy_timeout = {int(BUSY_TIMEOUT_S * 1000)}")
+    if str(path) != ":memory:":
+        try:
+            conn.execute("PRAGMA journal_mode = WAL")
+        except sqlite3.OperationalError:
+            # Locked by a pre-WAL writer this instant: keep the current mode,
+            # the next connection switches it.
+            pass
+        conn.execute("PRAGMA synchronous = NORMAL")
+    conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
