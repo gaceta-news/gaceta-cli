@@ -25,7 +25,7 @@ import json
 import os
 import re
 import threading
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -140,6 +140,21 @@ def _pick(arr, i):
 
 def _phrase(arr, i) -> str:
     return " ".join(str(_pick(arr, i) or "").split())
+
+
+def _station_local(observed: datetime, obs: dict) -> datetime:
+    """The observation in the station's own wall-clock offset (obsTimeLocal −
+    obsTimeUtc), so the paper prints the reader's HH:MM, not UTC, anywhere in
+    the world. Falls back to UTC when obsTimeLocal is missing or odd."""
+    try:
+        local = datetime.fromisoformat(str(obs.get("obsTimeLocal") or "").replace(" ", "T"))
+        offset = local - observed.replace(tzinfo=None)
+        minutes = round(offset.total_seconds() / 900) * 15   # quarter-hour zones
+        if abs(minutes) <= 14 * 60:
+            return observed.astimezone(timezone(timedelta(minutes=minutes)))
+    except (TypeError, ValueError):
+        pass
+    return observed
 
 
 class WundergroundBox:
@@ -384,7 +399,7 @@ class WundergroundBox:
                "facts": facts,
                "source": t["source"].format(station=station)
                         + (t["forecast_source"] if fc else ""),
-               "observed_at": observed.isoformat(timespec="seconds")}
+               "observed_at": _station_local(observed, obs).isoformat(timespec="seconds")}
         if raining:
             box["icon"] = "pouring" if rate >= POURING_MM_H else "rainy"
         else:

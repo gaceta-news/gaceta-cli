@@ -75,7 +75,8 @@ def test_station_id_box_in_spanish(monkeypatch):
     assert box["title"] == "El tiempo"
     assert box["lead"] == "18,7 °C"   # decimal comma; no forecast phrase in the lead
     assert box["icon"] == "lightning-rainy"                   # daypart iconCode 4
-    assert box["observed_at"] == "2026-11-22T18:03:32+00:00"
+    assert box["observed_at"] == "2026-11-22T13:03:32-05:00"   # station wall clock, not UTC
+    assert datetime.fromisoformat(box["observed_at"]) == datetime.fromisoformat("2026-11-22T18:03:32+00:00")
     assert box["facts"] == [
         ["Humedad", "66 %"],
         ["Viento", "3 km/h N · ráfaga 12"],
