@@ -20,6 +20,7 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import re
+import shutil
 import socket
 import sqlite3
 import threading
@@ -39,6 +40,11 @@ MAX_CONCURRENCY = 4
 ERROR_RETRY_SECONDS = 7 * 86400
 
 YOUTUBE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{11}$")
+# a cached file on disk: <sha1(src_url)[:16]>.<ext> (local_name below)
+CACHED_NAME_RE = re.compile(r"^[a-f0-9]{16}\.(?:jpg|png|webp|gif)$")
+# how editions reference cached files, inside their immutable snapshots:
+# story media src / source thumbs, both "media/<name>"
+_REF_IN_SNAPSHOT_RE = re.compile(r"media/([a-f0-9]{16}\.(?:jpg|png|webp|gif))")
 _EXT = r"[^\s<>\"']"
 NOSTR_IMAGE_RE = re.compile(rf"https://{_EXT}+\.(?:jpe?g|png|webp|gif)(?:[?#]{_EXT}*)?", re.IGNORECASE)
 NOSTR_VIDEO_RE = re.compile(rf"https://{_EXT}+\.(?:mp4|webm)(?:[?#]{_EXT}*)?", re.IGNORECASE)
@@ -286,14 +292,36 @@ def _write_row(conn: sqlite3.Connection, item_id: str, kind: str, *, status: str
     )
 
 
+def free_gb(path) -> float:
+    """Free space (decimal GB) on the filesystem holding ``path``, walking up
+    to the nearest existing ancestor. Stat failures fail open (infinite): a
+    disk check must never be the reason media goes missing."""
+    p = Path(path)
+    while not p.exists() and p.parent != p:
+        p = p.parent
+    try:
+        return shutil.disk_usage(p).free / 1e9
+    except OSError:
+        return float("inf")
+
+
 def collect_media(conn: sqlite3.Connection, reader_id: str, data_dir: Path, *,
-                  days: int = 14, max_fetch: int = 300, now: int | None = None) -> dict:
+                  days: int = 14, max_fetch: int = 300, min_free_gb: float = 0.0,
+                  now: int | None = None) -> dict:
     """Fill the media table for the reader's recent items. One network request
-    budget of ``max_fetch`` page GETs + image downloads, 4 workers, 1 per host."""
+    budget of ``max_fetch`` page GETs + image downloads, 4 workers, 1 per host.
+    ``min_free_gb`` > 0 skips the whole fetch (one line for the caller to log)
+    when the media dir's filesystem is below that much free space."""
     now = int(now if now is not None else time.time())
     cutoff = now - days * 86400
     data_dir = Path(data_dir)
     store = MediaStore(data_dir / "site" / "media")
+
+    if min_free_gb and min_free_gb > 0:
+        free = free_gb(store.media_dir)
+        if free < min_free_gb:
+            return {"candidates": 0, "planned": 0, "bytes_downloaded": 0,
+                    "skipped_low_disk": True, "free_gb": round(free, 2)}
 
     items = _candidate_items(conn, reader_id, cutoff)
     existing = _existing_rows(conn, [it["item_id"] for it in items])
@@ -415,3 +443,68 @@ def collect_media(conn: sqlite3.Connection, reader_id: str, data_dir: Path, *,
         "planned": len(plan),
         "bytes_downloaded": store.bytes_downloaded,
     }
+
+
+# ------------------------------------------------------------------ prune
+
+
+def prune_media(conn: sqlite3.Connection, data_dir: Path, *,
+                days: int = 30, dry_run: bool = False,
+                now: int | None = None) -> dict:
+    """Delete cached media files nothing needs anymore, and nothing else.
+
+    A file goes only when BOTH hold: no edition built in the last ``days``
+    references it (story media and source thumbs, read from the immutable
+    snapshots — the media dir is shared across readers, so every reader's
+    editions count) and its mtime is older than ``days``. Editions inside the
+    window are read fail-closed: an unreadable snapshot aborts the prune
+    rather than guessing at what it references.
+
+    Deleted names also drop their ``media`` rows, so if a still-active story
+    wants one back, the next `gaceta media` fetch re-downloads it instead of
+    pointing at a hole. ``dry_run`` reports without touching anything.
+    """
+    now = int(now if now is not None else time.time())
+    cutoff = now - int(days) * 86400
+    data_dir = Path(data_dir)
+    media_dir = data_dir / "site" / "media"
+
+    referenced: set[str] = set()
+    rows = conn.execute(
+        "SELECT path FROM editions WHERE built_at >= ? ORDER BY built_at", (cutoff,)
+    ).fetchall()
+    for row in rows:
+        path = Path(row["path"])
+        try:
+            text = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise MediaError(
+                f"cannot read the edition snapshot {path} built inside the last "
+                f"{days} days — prune refuses to guess what it references") from exc
+        referenced.update(_REF_IN_SNAPSHOT_RE.findall(text))
+
+    deleted = freed = considered = kept = 0
+    if media_dir.is_dir():
+        for entry in sorted(media_dir.iterdir()):
+            if not entry.is_file() or not CACHED_NAME_RE.fullmatch(entry.name):
+                continue
+            considered += 1
+            if entry.name in referenced:
+                kept += 1
+                continue
+            try:
+                st = entry.stat()
+            except OSError:
+                continue
+            if st.st_mtime >= cutoff:  # younger than the window: never touched
+                continue
+            if not dry_run:
+                entry.unlink(missing_ok=True)
+                conn.execute("DELETE FROM media WHERE local_path = ?", (entry.name,))
+            deleted += 1
+            freed += st.st_size
+    if not dry_run and deleted:
+        conn.commit()
+
+    return {"days": int(days), "deleted": deleted, "bytes_freed": freed,
+            "considered": considered, "referenced": kept, "dry_run": bool(dry_run)}

@@ -389,15 +389,42 @@ def cmd_write(args) -> int:
 
 
 def cmd_media(args) -> int:
+    action = getattr(args, "action", None)
+    if action == "prune":
+        conn = db.connect(_db_path())
+        try:
+            db.init(conn)
+            result = media_mod.prune_media(conn, config.data_dir(),
+                                           days=args.days, dry_run=args.dry_run)
+        except media_mod.MediaError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        finally:
+            conn.close()
+        print(f"media prune days={result['days']}: {result['deleted']} files, "
+              f"{result['bytes_freed'] / 1e6:.1f} MB freed "
+              f"({result['referenced']} referenced, {result['considered']} cached)"
+              f"{' — dry-run, nothing deleted' if result['dry_run'] else ''}")
+        return 0
+
+    reader = getattr(args, "reader", None)
+    if not reader:
+        print("media fetch needs --reader (or use: gaceta media prune)", file=sys.stderr)
+        return 2
     conn = db.connect(_db_path())
     try:
         db.init(conn)
         result = media_mod.collect_media(
-            conn, args.reader, config.data_dir(),
+            conn, reader, config.data_dir(),
             days=args.days, max_fetch=args.max_fetch,
+            min_free_gb=getattr(args, "min_free_gb", 0.0) or 0.0,
         )
     finally:
         conn.close()
+    if result.get("skipped_low_disk"):
+        print(f"media reader={reader}: {result['free_gb']:.1f} GB free < "
+              f"{args.min_free_gb} GB — skipped fetching new media")
+        return 0
     conn = db.connect(_db_path())
     try:
         rows = conn.execute(
@@ -407,7 +434,7 @@ def cmd_media(args) -> int:
         conn.close()
     summary = ", ".join(f"{r['kind']}/{r['status']}={r['n']}" for r in rows) or "none"
     print(
-        f"media reader={args.reader} days={args.days}: {result['candidates']} candidate items, "
+        f"media reader={reader} days={args.days}: {result['candidates']} candidate items, "
         f"{result['planned']} fetched this run ({result['bytes_downloaded'] / 1e6:.1f} MB); "
         f"table: {summary}"
     )
@@ -1029,11 +1056,28 @@ def main(argv=None) -> int:
                     help="LLM call budget for 'what changed' notes (default 40)")
     pw.set_defaults(func=cmd_write)
 
-    pm = sub.add_parser("media", help="discover and cache media for recent story items")
-    pm.add_argument("--reader", required=True)
+    pm = sub.add_parser("media", help="cache media for recent stories (fetch) or prune the cache (prune)")
+    pm.add_argument("--reader", default=None, help="reader id (fetch)")
     pm.add_argument("--days", type=int, default=14, help="last_seen window in days (default 14)")
     pm.add_argument("--max-fetch", type=int, default=300,
                     help="network request budget: page GETs + image downloads (default 300)")
+    pm.add_argument("--min-free-gb", type=float, default=0.0,
+                    help="skip fetching when the media filesystem has less than this "
+                         "many GB free (default 0 = off)")
+    msub = pm.add_subparsers(dest="action")
+    pmf = msub.add_parser("fetch", help="discover and cache media for recent story items")
+    pmf.add_argument("--reader", required=True)
+    pmf.add_argument("--days", type=int, default=14, help="last_seen window in days (default 14)")
+    pmf.add_argument("--max-fetch", type=int, default=300,
+                     help="network request budget: page GETs + image downloads (default 300)")
+    pmf.add_argument("--min-free-gb", type=float, default=0.0,
+                     help="skip fetching when the media filesystem has less than this "
+                          "many GB free (default 0 = off)")
+    mpr = msub.add_parser("prune", help="delete cached media files no edition in the window references")
+    mpr.add_argument("--days", type=int, default=30,
+                     help="editions built in the last N days keep their files; older "
+                          "unreferenced files go (default 30)")
+    mpr.add_argument("--dry-run", action="store_true", help="report what would go, delete nothing")
     pm.set_defaults(func=cmd_media)
 
     ped = sub.add_parser("edition", help="build an immutable edition snapshot")

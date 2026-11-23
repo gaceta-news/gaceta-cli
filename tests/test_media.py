@@ -2,6 +2,7 @@
 every fetch is monkeypatched."""
 from __future__ import annotations
 
+import json
 import socket
 import sqlite3
 import time
@@ -214,3 +215,138 @@ def test_build_edition_includes_media(tmp_path, monkeypatch):
     assert video and video[0]["src"] == "https://v.nostr.build/clip.mp4"
     with_thumb = [s for s in story["sources"] if "thumb" in s]
     assert with_thumb and all(s["thumb"].startswith("media/") for s in with_thumb)
+
+
+# ------------------------------------------------------ min-free-gb + prune
+
+def test_min_free_gb_skips_fetch_and_off_by_default(tmp_path, monkeypatch):
+    conn = make_db(tmp_path)
+    monkeypatch.setattr(media_mod, "free_gb", lambda path: 0.4)
+    result = media_mod.collect_media(conn, "r1", tmp_path, max_fetch=10, min_free_gb=1.5)
+    assert result["skipped_low_disk"] is True
+    assert result["planned"] == 0 and result["bytes_downloaded"] == 0
+    assert result["free_gb"] == 0.4
+    assert conn.execute("SELECT COUNT(*) FROM media").fetchone()[0] == 0
+    # 0 (default) = off: the fetch proceeds as before
+    result = media_mod.collect_media(conn, "r1", tmp_path, max_fetch=10, min_free_gb=0)
+    assert "skipped_low_disk" not in result and result["candidates"] == 3
+
+
+def _media_file(tmp_path, name, size=100, mtime=None):
+    media = tmp_path / "site" / "media"
+    media.mkdir(parents=True, exist_ok=True)
+    path = media / name
+    path.write_bytes(b"x" * size)
+    import os
+    if mtime is not None:
+        os.utime(path, (mtime, mtime))
+    return path
+
+
+def _write_edition(conn, tmp_path, names, built_at, day="2026-11-01"):
+    """An editions row whose snapshot references the given cached names."""
+    snap = tmp_path / "editions" / "r1" / f"{day}-private.json"
+    snap.parent.mkdir(parents=True, exist_ok=True)
+    snap.write_text(json.dumps({
+        "date": day, "built_at": "2026-11-01T06:00:00-05:00",
+        "stories": {"s": {"title": "T", "privacy": "public",
+                          "media": [{"type": "image", "src": f"media/{n}"} for n in names],
+                          "sources": [{"title": "t", "url": "https://example.com/x",
+                                       "thumb": f"media/{names[0]}"} if names else {}]}}
+    }), encoding="utf-8")
+    conn.execute(
+        "INSERT OR REPLACE INTO editions (reader_id, date, max_privacy, path, built_at) "
+        "VALUES ('r1', ?, 'private', ?, ?)", (day, str(snap), built_at))
+    conn.commit()
+    return snap
+
+
+NOW = int(time.time())
+OLD = NOW - 40 * 86400  # beyond every window used below
+
+
+def _prune_fixture(tmp_path):
+    conn = make_db(tmp_path)
+    # an edition built inside the window references aaaa…; one built 40 days
+    # ago (outside it) references dddd…
+    _write_edition(conn, tmp_path, ["aaaaaaaaaaaaaaaa.png"], NOW - 3600, day="2026-11-01")
+    _write_edition(conn, tmp_path, ["dddddddddddddddd.webp"], OLD - 3600, day="2026-10-01")
+    files = {
+        "kept-referenced-old": _media_file(tmp_path, "aaaaaaaaaaaaaaaa.png", 100, OLD),
+        "gone-unreferenced-old": _media_file(tmp_path, "bbbbbbbbbbbbbbbb.jpg", 150_000, OLD),
+        "kept-young": _media_file(tmp_path, "cccccccccccccccc.gif", 300, NOW - 100),
+        "gone-only-old-edition": _media_file(tmp_path, "dddddddddddddddd.webp", 250_000, OLD),
+        "not-a-cache-name": _media_file(tmp_path, "notes.txt", 50, OLD),
+    }
+    conn.execute(
+        "INSERT INTO media (item_id, kind, status, local_path, fetched_at) "
+        "VALUES ('yt:AAAAAAAAAAA', 'image', 'ok', 'bbbbbbbbbbbbbbbb.jpg', ?)", (OLD,))
+    conn.commit()
+    return conn, files
+
+
+def test_prune_keeps_referenced_and_recent_deletes_old_unreferenced(tmp_path):
+    conn, files = _prune_fixture(tmp_path)
+    result = media_mod.prune_media(conn, tmp_path, days=30, now=NOW)
+    assert result["deleted"] == 2 and result["bytes_freed"] == 400_000
+    assert result["considered"] == 4 and result["referenced"] == 1
+    assert files["kept-referenced-old"].exists()      # an edition in the window needs it
+    assert files["kept-young"].exists()               # younger than the window by mtime
+    assert not files["gone-unreferenced-old"].exists()
+    assert not files["gone-only-old-edition"].exists()  # its edition is outside the window
+    assert files["not-a-cache-name"].exists()         # not gaceta's naming: untouched
+    # the deleted file's row is gone; nothing else lost a row
+    assert conn.execute(
+        "SELECT COUNT(*) FROM media WHERE local_path = 'bbbbbbbbbbbbbbbb.jpg'"
+    ).fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM media").fetchone()[0] == 0
+
+
+def test_prune_dry_run_deletes_nothing(tmp_path):
+    conn, files = _prune_fixture(tmp_path)
+    result = media_mod.prune_media(conn, tmp_path, days=30, dry_run=True, now=NOW)
+    assert result["dry_run"] is True and result["deleted"] == 2
+    assert all(p.exists() for p in files.values())
+    assert conn.execute("SELECT COUNT(*) FROM media").fetchone()[0] == 1
+
+
+def test_prune_refuses_when_a_window_edition_is_unreadable(tmp_path):
+    conn, files = _prune_fixture(tmp_path)
+    (tmp_path / "editions" / "r1" / "2026-11-01-private.json").unlink()
+    with pytest.raises(media_mod.MediaError, match="refuses to guess"):
+        media_mod.prune_media(conn, tmp_path, days=30, now=NOW)
+    assert all(p.exists() for p in files.values())
+
+
+def test_prune_cli_and_legacy_media_invocation(tmp_path, monkeypatch, capsys):
+    import gaceta.db as gdb2
+    from gaceta.cli import main as cli_main
+
+    monkeypatch.setenv("GACETA_DATA", str(tmp_path))
+    conn, files = _prune_fixture(tmp_path)
+    conn.close()
+
+    assert cli_main(["media", "prune", "--days", "30", "--dry-run"]) == 0
+    out = capsys.readouterr().out
+    assert "media prune days=30" in out and "dry-run, nothing deleted" in out
+    assert all(p.exists() for p in files.values())
+
+    assert cli_main(["media", "prune", "--days", "30"]) == 0
+    out = capsys.readouterr().out
+    assert "2 files" in out and "0.4 MB freed" in out
+    assert not files["gone-unreferenced-old"].exists()
+
+    # the pre-prune spelling still works: gaceta media --reader r (fetch, no network here)
+    conn2 = gdb2.connect(tmp_path / "gaceta.db")
+    conn2.execute("UPDATE stories SET last_seen = ? WHERE reader_id = 'r1'", (NOW - 400,))
+    conn2.commit()
+    conn2.close()
+    monkeypatch.setattr(media_mod, "_read_url", fake_fetch)
+    assert cli_main(["media", "--reader", "r1", "--max-fetch", "0"]) == 0
+    assert "media reader=r1" in capsys.readouterr().out
+    # and the subcommand spelling parses the same options
+    assert cli_main(["media", "fetch", "--reader", "r1", "--max-fetch", "0"]) == 0
+    capsys.readouterr()
+    # a bare `gaceta media` says what it needs instead of crashing
+    assert cli_main(["media"]) == 2
+    assert "--reader" in capsys.readouterr().err

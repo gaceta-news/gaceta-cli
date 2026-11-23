@@ -203,7 +203,7 @@ A provider that fails or returns nothing is skipped; a number never blocks the p
 | `ingest <adapter\|all>` | pull new items |
 | `embed`, `cluster` | embed items locally and group them into stories |
 | `write` | LLM write-ups for stories that changed (`--max-llm-calls`, `--max-change-calls` cap spend) |
-| `media` | cache thumbnails for recent stories |
+| `media` | cache thumbnails for recent stories (`fetch`, `--min-free-gb` skips on low disk); `prune` deletes cached files no recent edition needs |
 | `edition`, `render` | build an immutable edition snapshot and render it to HTML |
 | `status` | read-only reader build health: last ok/fail build per reader, from `<data>/status/` (no database) |
 | `serve` | localhost server with reactions (put a reverse proxy or a tailnet in front) |
@@ -267,6 +267,13 @@ where a health check can read it without parsing logs:
   "Edición del <fecha>" when older (localized; English, Portuguese, French, German and
   Italian too). Static exports bake it; the served page refreshes it from `/api/state`'s
   `built_at`, so a paper left open admits its age as hours pass.
+- The media cache never grows forever: `gaceta media prune --days 30 [--dry-run]` deletes
+  cached files that no edition built in the window references and that are older than the
+  window by mtime — never anything a live edition needs (an unreadable in-window snapshot
+  aborts the prune rather than guessing). Prints the count and bytes freed, and drops the
+  matching `media` rows so a still-active story re-fetches on the next `gaceta media`.
+  `gaceta media [--min-free-gb G]` (default 0 = off) skips fetching new media — one log
+  line, exit 0 — when the media filesystem is below G GB free.
 
 ## Development
 
