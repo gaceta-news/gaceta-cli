@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import config, db, ingest, media as media_mod
+from . import budget, config, db, ingest, media as media_mod
 from . import sources as sources_registry
 from .edition import build_edition, snapshot_path
 from .editor import cluster
@@ -270,6 +270,7 @@ def cmd_ingest(args) -> int:
 
 def cmd_stats(args) -> int:
     conn = db.connect(_db_path())
+    db.init(conn)  # idempotent; older dbs gain llm_usage here
     reader = conn.execute("SELECT id FROM readers WHERE id = ?", (args.reader,)).fetchone()
     if reader is None:
         print(f"unknown reader '{args.reader}'", file=sys.stderr)
@@ -297,6 +298,21 @@ def cmd_stats(args) -> int:
     print("by privacy:")
     for r in rows:
         print(f"  {r['k']}: {r['n']}")
+    # today's LLM calls vs the daily budget ([llm] daily_max_calls)
+    try:
+        cfg = config.load_reader(args.reader)
+    except OSError:
+        cfg = {}
+    day = budget.day_key(cfg)
+    limit = (cfg.get("llm") or {}).get("daily_max_calls")
+    row = conn.execute(
+        "SELECT calls FROM llm_usage WHERE reader_id = ? AND day = ?", (args.reader, day)
+    ).fetchone()
+    calls = int(row["calls"]) if row is not None else 0
+    cap = f"/{limit}" if isinstance(limit, int) and not isinstance(limit, bool) \
+        else " (no daily limit)"
+    print(f"llm calls today ({day}):")
+    print(f"  {calls}{cap}")
     conn.close()
     return 0
 

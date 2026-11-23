@@ -229,7 +229,7 @@ def _seed_zone_pair(env):
     return sim
 
 
-def test_eval_confirm_writes_only_llm_decisions(env, capsys):
+def test_eval_confirm_writes_only_cache_tables(env, capsys):
     _seed_zone_pair(env)
     env.cfg["llm"] = {"editor": {"provider": "fake", "allow_private": False}}
     golden = env.data_dir / "golden.json"
@@ -242,8 +242,11 @@ def test_eval_confirm_writes_only_llm_decisions(env, capsys):
     assert "precision" in out and "b3_f1" in out and out["confirm_low"] == 0.55
     after_stories = env.conn.execute(
         "SELECT COUNT(*) FROM stories WHERE reader_id = ?", (env.cfg["id"],)).fetchone()[0]
-    assert before_stories == after_stories == 0  # only llm_decisions was written
+    assert before_stories == after_stories == 0  # stories untouched
+    # the one real confirm call is accounted: decision cache + day counter, nothing else
     assert env.conn.execute("SELECT COUNT(*) FROM llm_decisions").fetchone()[0] == 1
+    assert env.conn.execute(
+        "SELECT calls FROM llm_usage WHERE reader_id = ?", (env.cfg["id"],)).fetchone()[0] == 1
     assert line == out
 
 

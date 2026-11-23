@@ -214,3 +214,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS ix_saves_gaceta
 CREATE UNIQUE INDEX IF NOT EXISTS ix_saves_x
   ON saves(reader_id, item_id) WHERE removed_at IS NULL AND item_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS ix_saves_reader ON saves(reader_id, at);
+
+-- v12 (additive): per-reader daily LLM call accounting ([llm] daily_max_calls).
+-- One row per reader per day; day = the reader's local date ([schedule] tz
+-- when configured, else system local). Real (non-cache) chat calls only —
+-- cache hits are free. Reaching the limit behaves exactly like --max-llm-calls:
+-- graceful stop, the edition continues with what is already written.
+CREATE TABLE IF NOT EXISTS llm_usage (
+  reader_id TEXT NOT NULL REFERENCES readers(id),
+  day TEXT NOT NULL,                    -- YYYY-MM-DD, the reader's local day
+  calls INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (reader_id, day)
+);
