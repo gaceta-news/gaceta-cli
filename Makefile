@@ -3,9 +3,6 @@ check:
 	uv run --with pytest pytest -q
 	python scripts/check-parity.py
 
-land:
-	bash scripts/land.sh $(PR)
-
 release-dry:
 	bash scripts/release.sh $(V) --dry-run
 
@@ -18,4 +15,4 @@ packages:
 packages-check:
 	python scripts/build-packages.py --check
 
-.PHONY: check packages packages-check release release-dry land
+.PHONY: check packages packages-check release release-dry
