@@ -89,6 +89,11 @@ def messages_text(messages: list[dict]) -> str:
     return json.dumps(messages, ensure_ascii=True, sort_keys=True)
 
 
+def has_same(text: str) -> bool:
+    """True when the reply carries a {"same": bool} verdict at all (cache validity)."""
+    return bool(text and re.search(r"\"same\"\s*:\s*(true|false)", text, re.IGNORECASE))
+
+
 def parse_same(text: str) -> bool:
     """Robustly pull {"same": bool} out of a model reply. Unparseable → False."""
     if not text:
@@ -158,19 +163,91 @@ def writeup_messages(items: list[dict], *, langs: str, profile: str | None,
     ]
 
 
-def parse_writeup(text: str) -> dict | None:
-    """Strictly validate a write-up reply. Anything missing, mistyped or unparseable
-    → None (the caller keeps the story unchanged)."""
+_CLOSES_STRING = re.compile(r'\s*(:|,\s*"[A-Za-z_][A-Za-z0-9_]*"\s*:|\}|\Z)')
+
+
+def _repair_json(text: str) -> str | None:
+    """Best-effort repair of the two ways models break our one-object replies:
+    unescaped double quotes inside a string value ("Gm") and a reply cut off
+    by max_tokens. A quote closes a string only when what follows is ':', the
+    next '"key":', '}' or the end; any other quote is escaped. A cut-off reply
+    is closed after its last complete field."""
+    start = text.find("{")
+    if start < 0:
+        return None
+    out: list[str] = []
+    in_str = esc = False
+    depth = 0
+    i, n = start, len(text)
+    while i < n:
+        ch = text[i]
+        if in_str:
+            if esc:
+                esc = False
+                out.append(ch)
+            elif ch == "\\":
+                esc = True
+                out.append(ch)
+            elif ch == '"':
+                if _CLOSES_STRING.match(text, i + 1):
+                    in_str = False
+                    out.append(ch)
+                else:
+                    out.append('\\"')
+            elif ch == "\n":
+                out.append("\\n")
+            else:
+                out.append(ch)
+        else:
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    out.append(ch)
+                    return "".join(out)
+            out.append(ch)
+        i += 1
+    if in_str:
+        # cut inside a string: drop that whole field, keep the complete ones
+        body = "".join(out)
+        cut = body.rfind(',"') if body.rfind(',"') > body.rfind(', "') else body.rfind(', "')
+        if cut < 0:
+            return None
+        return body[:cut] + "}" * max(depth, 1)
+    body = "".join(out).rstrip().rstrip(",")
+    body = re.sub(r',\s*"[^"]*"\s*:?\s*$', "", body)  # dangling key without value
+    return body + "}" * max(depth, 0)
+
+
+def loads_obj(text: str) -> dict | None:
+    """The first JSON object in a model reply; repaired when it is malformed."""
     if not text:
         return None
     m = re.search(r"\{.*\}", text, re.DOTALL)
-    if not m:
+    if m:
+        try:
+            obj = json.loads(m.group(0))
+            return obj if isinstance(obj, dict) else None
+        except json.JSONDecodeError:
+            pass
+    fixed = _repair_json(text)
+    if fixed is None:
         return None
     try:
-        obj = json.loads(m.group(0))
+        obj = json.loads(fixed)
     except json.JSONDecodeError:
         return None
-    if not isinstance(obj, dict):
+    return obj if isinstance(obj, dict) else None
+
+
+def parse_writeup(text: str) -> dict | None:
+    """Strictly validate a write-up reply. Anything missing, mistyped or unparseable
+    → None (the caller keeps the story unchanged)."""
+    obj = loads_obj(text)
+    if obj is None:
         return None
     title, summary = obj.get("title"), obj.get("summary")
     why, conf = obj.get("why_it_matters"), obj.get("confidence")

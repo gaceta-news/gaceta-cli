@@ -15,6 +15,7 @@ import uuid as uuid_mod
 
 import pytest
 
+from gaceta.editor import writeup
 from gaceta.providers.llm import (
     ChainChat,
     LLMRefused,
@@ -343,4 +344,4 @@ api_key_env = ""
     # the probe: every attempt tiny (max_tokens 1) and to the primary ...
     assert all(b == A and bodies[i]["max_tokens"] == 1 for i, b in enumerate(bases[:-1]))
     # ... after its own retries it is down, and the run's one real call serves from B
-    assert bases[-1] == B and bodies[-1]["max_tokens"] == 400
+    assert bases[-1] == B and bodies[-1]["max_tokens"] == writeup.WRITEUP_MAX_TOKENS
