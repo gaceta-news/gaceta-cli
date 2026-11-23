@@ -122,11 +122,20 @@ provider = "fake"
 provider = "fake"
 # provider = "openai"                     # any OpenAI-compatible /chat/completions
 # model = "gpt-4o-mini"
-# base_url = "https://api.openai.com/v1"
+# base_url = "https://api.example-a.test/v1"
 # api_key_env = "OPENAI_API_KEY"          # env var holding the key; "" for local
 #                                          # servers without auth (Ollama /v1, llama.cpp)
 # allow_private = false                   # true only for providers you trust
 #                                          # with the reader's private notes
+# headers = { "User-Agent" = "gaceta/0.3", "x-opencode-session" = "${uuid}" }
+# preflight = true                        # probe the primary before gaceta write
+# [[llm.editor.fallbacks]]                # tried in order when the primary is down
+# base_url = "https://api.example-b.test/v1"   # (429/5xx/auth/unreachable)
+# api_key_env = "FALLBACK_API_KEY"         # model defaults to the primary's
+
+# [llm]
+# daily_max_calls = 300                   # real LLM calls per local day
+#                                          # (absent = unlimited; stats shows them)
 
 [cluster]
 threshold = 0.70      # cosine similarity for "same story"
