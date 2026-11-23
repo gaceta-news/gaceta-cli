@@ -70,6 +70,27 @@ def test_budget_zero_leaves_null(env):
         "SELECT what_changed FROM story_versions WHERE version = 2").fetchone()[0] is None
 
 
+def test_invalid_reply_is_cached_not_repaid(env):
+    """Step 0: an invalid what_changed reply IS cached in llm_decisions — the
+    version is still a candidate next run, but the cached reply is re-read, so
+    the model is never re-asked (and never re-paid) for it."""
+    _story(env)
+    chat = FakeWriteup("no JSON anywhere in this reply")
+    r1 = changes.note_changes(env.conn, env.cfg["id"], env.cfg, chat=chat, now=NOW)
+    assert r1["failed"] == 1 and r1["llm_calls"] == 1
+    assert env.conn.execute("SELECT COUNT(*) FROM llm_decisions").fetchone()[0] == 1
+
+    def never(messages, **kw):
+        raise AssertionError("invalid replies are cached; no second call expected")
+
+    chat2 = FakeWriteup("unused")  # same default name → the same cache key
+    chat2.complete = never
+    r2 = changes.note_changes(env.conn, env.cfg["id"], env.cfg, chat=chat2, now=NOW)
+    assert r2["llm_calls"] == 0 and r2["llm_cache_hits"] == 1 and r2["failed"] == 1
+    assert env.conn.execute(
+        "SELECT what_changed FROM story_versions WHERE version = 2").fetchone()[0] is None
+
+
 def test_private_items_never_reach_a_public_model(env):
     _story(env)
     env.conn.execute("UPDATE annotations SET item_privacy = 'private' WHERE item_id = 'a2'")

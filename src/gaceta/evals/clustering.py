@@ -10,6 +10,7 @@ import sqlite3
 
 import numpy as np
 
+from ..budget import DailyBudget
 from ..editor import cluster
 from ..providers import embed as embedders
 from ..providers import llm as llm_providers
@@ -113,8 +114,9 @@ def run(conn: sqlite3.Connection, reader_id: str, cfg: dict, golden_path, sweep:
     """Print one JSON line for the current clustering, or one per sweep threshold + best.
 
     confirm=True: cluster in memory WITH the LLM confirm step at `threshold`
-    (default: the config threshold) and `confirm_low`. Writes only llm_decisions
-    (the decision cache); the reader's stories are untouched. The line carries
+    (default: the config threshold) and `confirm_low`. Writes only the
+    accounting tables (llm_decisions cache + llm_usage day counter); the
+    reader's stories are untouched. The line carries
     P/R/F1 (pairwise + B-cubed) plus llm_calls / llm_cache_hits / tokens.
     """
     golden = load_golden(golden_path)
@@ -130,7 +132,8 @@ def run(conn: sqlite3.Connection, reader_id: str, cfg: dict, golden_path, sweep:
                  else c.get("max_llm_calls", cluster.DEFAULT_MAX_LLM_CALLS))
         chat = llm_providers.from_config((cfg.get("llm") or {}).get("editor") or {})
         confirmer = cluster.Confirmer(
-            chat, conn, cluster._desc_fn(conn, reader_id), confirm_low=cl, max_llm_calls=budget)
+            chat, conn, cluster._desc_fn(conn, reader_id), confirm_low=cl, max_llm_calls=budget,
+            budget=DailyBudget(conn, reader_id, cfg))
         items = _sweep_items(conn, reader_id, model)
         m = evaluate(cluster.partition(items, th, window_days, confirmer=confirmer), golden)
         line = {"threshold": th, "confirm_low": cl, "window_days": window_days, **m,

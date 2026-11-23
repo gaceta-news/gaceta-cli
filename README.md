@@ -117,6 +117,52 @@ Use an instruct model that answers directly. Reasoning models ("thinking" varian
 the token budget before emitting the JSON card. A 3B model on CPU writes a card in about ten
 seconds; small models also get facts wrong more often, so prefer the biggest one you can run.
 
+### Fallbacks, headers and a daily budget
+
+Hosted providers run out of quota at the worst time ("rate limit exhausted" on the first call of
+the day). Declare the whole arrangement in the reader config instead of scripting around it:
+
+```toml
+[llm]
+daily_max_calls = 300               # real (non-cache) calls per local day; absent = unlimited
+
+[llm.editor]
+provider = "openai"
+base_url = "https://api.example-a.test/v4"
+api_key_env = "PRIMARY_API_KEY"
+model = "glm-5.3"
+allow_private = false
+extra_body = { thinking = { type = "disabled" } }
+headers = { "User-Agent" = "gaceta/0.3", "x-opencode-session" = "${uuid}" }
+preflight = true                    # one 1-token probe before `gaceta write`'s real calls
+
+[[llm.editor.fallbacks]]             # tried in order after the primary
+base_url = "https://api.example-b.test/v4"
+api_key_env = "FALLBACK_API_KEY"
+# model = "glm-5.3"                 # default: the primary's model
+# headers = { ... }                # per-fallback; extra_body is NOT inherited
+# inherit_extra_body = true        # ...unless you ask for it
+```
+
+`headers` are extra request headers on every call to that member; the literal `${uuid}` expands
+to one uuid4 per process (some CDNs block default client strings). `Authorization` in `headers` is
+rejected — keys only ever travel via `api_key_env`, and header values are never logged.
+
+When a member answers 429 (after its own retries), 401/403, 5xx, or is unreachable, the next
+member takes over, and once a member is down it is not retried for the rest of the process. A
+per-item refusal (any other 4xx, e.g. a content filter) never fails over — that one story is
+skipped and the run continues. With `preflight = true`, `gaceta write` first spends one tiny
+1-token request on the primary; a 429 there means the whole run starts at the fallback. The
+decision cache is shared across the chain (one name), so a story written by a fallback is never
+re-asked.
+
+`[llm] daily_max_calls` counts every real (non-cache) chat call the editor makes for the reader —
+write-ups, "what changed" notes and cluster confirmations. When the day's budget is spent, the run
+stops exactly like `--max-llm-calls` being spent: gracefully, the edition continues with what is
+written, and `gaceta stats` shows today's calls per reader (`calls/budget`). The day is the
+reader's local date; set `[schedule] tz` (any `zoneinfo` name, e.g. `"UTC"`)
+to pin it.
+
 Then run the same commands as the quickstart and put them in cron or a systemd timer, with
 `gaceta edition --reader main --force` so reruns on the same day replace the snapshot. A run only
 rewrites stories that changed.
@@ -133,7 +179,8 @@ never in code.
 | `[[sources.rss.feeds]]` | RSS/Atom/YouTube feeds (`url`, or `file` for a local feed; `kind`) |
 | `[sources.rss.transcripts]` | how YouTube transcripts are fetched; videos without one are skipped |
 | `[sources.nostr_wot]` | web-of-trust-ranked Nostr notes (readiness-gated) |
-| `[embed]`, `[llm.editor]` | providers: `ollama`, `openai` (compatible), or `fake` |
+| `[embed]`, `[llm.editor]` | providers: `ollama`, `openai` (compatible), or `fake`; `[llm.editor]` also takes `headers`, `[[llm.editor.fallbacks]]`, `preflight` |
+| `[llm]` | `daily_max_calls`: per-reader daily LLM call budget (absent = unlimited) |
 | `[cluster]` | `threshold` (cosine "same story") and `window_days` |
 | `[[sections]]` | named sections matched by source kind, source-id prefix or keywords |
 | `[schedule]` | release slots for the served page: `every_hours` (2), `start_hour` (6), `end_hour` (22), `minute` (30) → "próxima ~HH:MM"; `stale_after_h` (14) → when the banner below appears |

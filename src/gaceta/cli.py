@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import config, db, ingest, media as media_mod, status
+from . import budget, config, db, ingest, media as media_mod, status
 from . import sources as sources_registry
 from .edition import build_edition, snapshot_path
 from .edition import build as edition_build
@@ -123,11 +123,20 @@ provider = "fake"
 provider = "fake"
 # provider = "openai"                     # any OpenAI-compatible /chat/completions
 # model = "gpt-4o-mini"
-# base_url = "https://api.openai.com/v1"
+# base_url = "https://api.example-a.test/v1"
 # api_key_env = "OPENAI_API_KEY"          # env var holding the key; "" for local
 #                                          # servers without auth (Ollama /v1, llama.cpp)
 # allow_private = false                   # true only for providers you trust
 #                                          # with the reader's private notes
+# headers = { "User-Agent" = "gaceta/0.3", "x-opencode-session" = "${uuid}" }
+# preflight = true                        # probe the primary before gaceta write
+# [[llm.editor.fallbacks]]                # tried in order when the primary is down
+# base_url = "https://api.example-b.test/v1"   # (429/5xx/auth/unreachable)
+# api_key_env = "FALLBACK_API_KEY"         # model defaults to the primary's
+
+# [llm]
+# daily_max_calls = 300                   # real LLM calls per local day
+#                                          # (absent = unlimited; stats shows them)
 
 [cluster]
 threshold = 0.70      # cosine similarity for "same story"
@@ -271,6 +280,7 @@ def cmd_ingest(args) -> int:
 
 def cmd_stats(args) -> int:
     conn = db.connect(_db_path())
+    db.init(conn)  # idempotent; older dbs gain llm_usage here
     reader = conn.execute("SELECT id FROM readers WHERE id = ?", (args.reader,)).fetchone()
     if reader is None:
         print(f"unknown reader '{args.reader}'", file=sys.stderr)
@@ -298,6 +308,24 @@ def cmd_stats(args) -> int:
     print("by privacy:")
     for r in rows:
         print(f"  {r['k']}: {r['n']}")
+    # today's LLM calls vs the daily budget ([llm] daily_max_calls)
+    try:
+        cfg = config.load_reader(args.reader)
+    except OSError:
+        cfg = {}
+    try:
+        day = budget.day_key(cfg)
+    except ValueError:
+        day = budget.day_key({})  # a broken tz: write paths refuse it; show the local day
+    limit = (cfg.get("llm") or {}).get("daily_max_calls")
+    row = conn.execute(
+        "SELECT calls FROM llm_usage WHERE reader_id = ? AND day = ?", (args.reader, day)
+    ).fetchone()
+    calls = int(row["calls"]) if row is not None else 0
+    cap = f"/{limit}" if isinstance(limit, int) and not isinstance(limit, bool) \
+        else " (no daily limit)"
+    print(f"llm calls today ({day}):")
+    print(f"  {calls}{cap}")
     conn.close()
     return 0
 
@@ -349,15 +377,28 @@ def cmd_write(args) -> int:
     conn = db.connect(_db_path())
     try:
         db.init(conn)
+        # [llm.editor] preflight = true: spend one 1-token request before the
+        # run's real calls, so a quota-limited primary is skipped from the
+        # start. The same chat object serves write-ups and change notes, so
+        # the chain's down-state is shared across both.
+        chat = None
+        llm_cfg = (cfg.get("llm") or {}).get("editor") or {}
+        if bool(llm_cfg.get("preflight", False)):
+            from .providers import llm as llm_providers
+
+            chat = llm_providers.from_config(llm_cfg)
+            preflight = getattr(chat, "preflight", None)
+            if callable(preflight):
+                preflight()
         result = write_stories(
             conn, args.reader, cfg,
-            days=args.days, max_llm_calls=args.max_llm_calls,
+            days=args.days, max_llm_calls=args.max_llm_calls, chat=chat,
         )
         # what each rewrite added over the previous card ('Desde que la viste');
         # a failure here never costs the write-ups already committed
         try:
             ch = note_changes(conn, args.reader, cfg, days=args.days,
-                              max_llm_calls=args.max_change_calls)
+                              max_llm_calls=args.max_change_calls, chat=chat)
         except Exception as e:  # noqa: BLE001 — network/provider; retried next run
             ch = {"error": f"{type(e).__name__}: {e}"}
     except ValueError as e:

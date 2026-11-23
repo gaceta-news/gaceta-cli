@@ -4,7 +4,7 @@ from __future__ import annotations
 import sqlite3
 from importlib import resources
 
-SCHEMA_VERSION = 11
+SCHEMA_VERSION = 12
 
 # v4 (additive): story_versions.members — member count tracked per version so
 # write-ups only rerun when a story gained members. ALTER-based because schema.sql
@@ -25,6 +25,8 @@ MIGRATIONS = (
     # previous one, so a story that resurfaces after 'Visto' says why. NULL = not
     # computed yet; '' = computed, nothing material (only reworded).
     ("ALTER TABLE story_versions ADD COLUMN what_changed TEXT", "duplicate column"),
+    # v12 (additive): llm_usage (per-reader daily LLM call budget) is pure
+    # CREATE IF NOT EXISTS (schema.sql) — no ALTER.
 )
 
 

@@ -15,6 +15,7 @@ import time
 
 import numpy as np
 
+from .. import budget as budget_mod
 from .. import privacy
 from ..editor import prompts
 from ..providers import embed as embedders
@@ -115,12 +116,14 @@ class Confirmer:
     """
 
     def __init__(self, model, conn: sqlite3.Connection, desc_fn, *,
-                 confirm_low: float, max_llm_calls: int = DEFAULT_MAX_LLM_CALLS):
+                 confirm_low: float, max_llm_calls: int = DEFAULT_MAX_LLM_CALLS,
+                 budget: budget_mod.DailyBudget | None = None):
         self.model = model
         self.conn = conn
         self.desc_fn = desc_fn
         self.confirm_low = confirm_low
         self.max_llm_calls = max_llm_calls
+        self.budget = budget
         self.calls = 0
         self.cache_hits = 0
         self.tokens = {"prompt": 0, "completion": 0}
@@ -143,7 +146,8 @@ class Confirmer:
         if row is not None:
             self.cache_hits += 1
             return prompts.parse_same(row[0] or "")
-        if self.calls >= self.max_llm_calls:
+        if self.calls >= self.max_llm_calls or (
+                self.budget is not None and self.budget.reached()):
             self.budget_exhausted = True
             return False
         try:
@@ -152,6 +156,8 @@ class Confirmer:
             self.refused += 1
             out, usage = "", {"refused": e.code, "detail": e.detail}
         self.calls += 1
+        if self.budget is not None:
+            self.budget.count()  # a real call: counts against [llm] daily_max_calls too
         self.tokens["prompt"] += int(usage.get("prompt_tokens") or 0)
         self.tokens["completion"] += int(usage.get("completion_tokens") or 0)
         if usage.get("served_model"):
@@ -328,6 +334,7 @@ def cluster(conn: sqlite3.Connection, reader_id: str, cfg: dict, rebuild: bool =
             chat, conn, _desc_fn(conn, reader_id),
             confirm_low=float(c.get("confirm_low", DEFAULT_CONFIRM_LOW)),
             max_llm_calls=int(c.get("max_llm_calls", DEFAULT_MAX_LLM_CALLS)),
+            budget=budget_mod.DailyBudget(conn, reader_id, cfg),
         )
 
     if rebuild:

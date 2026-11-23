@@ -292,7 +292,8 @@ def _release_lock(root: Path) -> None:
 # ---------------------------------------------------------------- policy
 
 _FORBIDDEN_EMBED_KEYS = ("base_url", "api_key_env", "model")
-_FORBIDDEN_LLM_KEYS = ("base_url", "api_key_env", "model", "extra_body")
+_FORBIDDEN_LLM_KEYS = ("base_url", "api_key_env", "model", "extra_body",
+                       "headers", "fallbacks", "preflight")
 
 
 def _verify_config(cfg: dict, root: Path) -> None:

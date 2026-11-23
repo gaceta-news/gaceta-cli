@@ -74,8 +74,9 @@ gate, re-verified before **every** run and refused with no run spent:
 - every link in that feed points at the reserved `.invalid` domain — nothing
   in it is fetchable, nothing is a real source;
 - `[embed]` and `[llm.editor]` are pinned to the deterministic fakes;
-  `base_url`, `api_key_env`, `model` and `extra_body` are refused (no
-  endpoints, no credentials, no paid inference);
+  `base_url`, `api_key_env`, `model`, `extra_body`, `headers`, `fallbacks`
+  and `preflight` are refused (no endpoints, no credentials, no paid
+  inference);
 - no `[schedule]`, and nothing here starts timers, cron or daemons; an
   edition that comes back with `next_update` is refused;
 - no `[conditions]` plugin boxes, no `[cluster].confirm`, no reader profile.

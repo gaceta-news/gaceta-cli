@@ -16,6 +16,7 @@ import sqlite3
 import time
 from pathlib import Path
 
+from .. import budget as budget_mod
 from .. import config, i18n, privacy
 from ..editor import prompts, quotes
 from ..providers import llm as llm_providers
@@ -114,6 +115,7 @@ def write_stories(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
     profile = _reader_profile(cfg, reader_id)
 
     candidates = _candidates(conn, reader_id, start, end)
+    daily = budget_mod.DailyBudget(conn, reader_id, cfg, now=now)
     calls = cache_hits = written = failed = 0
     pending = 0
     tokens = {"prompt": 0, "completion": 0}
@@ -133,7 +135,7 @@ def write_stories(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
         if row is not None:
             cache_hits += 1
             return row[0] or "", {}
-        if calls >= max_llm_calls:
+        if calls >= max_llm_calls or daily.reached():
             return None
         try:
             out, usage = chat.complete(messages, max_tokens=400, temperature=0.0)
@@ -141,6 +143,7 @@ def write_stories(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
             refused += 1
             out, usage = "", {"refused": e.code, "detail": e.detail}
         calls += 1
+        daily.count()  # a real call: counts against [llm] daily_max_calls too
         tokens["prompt"] += int(usage.get("prompt_tokens") or 0)
         tokens["completion"] += int(usage.get("completion_tokens") or 0)
         if usage.get("served_model"):

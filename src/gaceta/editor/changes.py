@@ -20,6 +20,7 @@ import re
 import sqlite3
 import time
 
+from .. import budget as budget_mod
 from .. import i18n, privacy
 from ..editor import prompts, quotes
 from ..providers import llm as llm_providers
@@ -143,6 +144,7 @@ def note_changes(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
     now = int(now if now is not None else time.time())
     start = now - int(days) * 86400
     langs = str(cfg.get("langs") or "en")
+    daily = budget_mod.DailyBudget(conn, reader_id, cfg, now=now)
     calls = cache_hits = noted = unchanged = failed = skipped = 0
     budget_exhausted = False
 
@@ -169,7 +171,7 @@ def note_changes(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
             cache_hits += 1
             out = row[0] or ""
         else:
-            if calls >= max_llm_calls:
+            if calls >= max_llm_calls or daily.reached():
                 budget_exhausted = True
                 break
             try:
@@ -177,6 +179,7 @@ def note_changes(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
             except llm_providers.LLMRefused as e:
                 out, usage = "", {"refused": e.code, "detail": e.detail}
             calls += 1
+            daily.count()  # a real call: counts against [llm] daily_max_calls too
             conn.execute(
                 "INSERT INTO llm_decisions (key, model, input_hash, output, usage, at) "
                 "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET "

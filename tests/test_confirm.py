@@ -77,6 +77,28 @@ def test_unparseable_llm_reply_means_no(env):
     assert out == [["i0"], ["i1"]]  # unparseable → false → no join
 
 
+def test_unparseable_reply_is_cached_not_repaid(env):
+    """Step 0 (cluster-confirm): an unparseable confirm reply IS cached in
+    llm_decisions — the same borderline pair is never re-requested next run."""
+    add_item(env, "i0", "A one", "alpha beta gamma", published=T0)
+    add_item(env, "i1", "B two", "other words", published=T0 + DAY)
+
+    def garbage(messages, **kw):
+        return "the items are clearly the same story", {"prompt_tokens": 1}
+
+    chat = FakeChat()
+    chat.complete = garbage
+    conf = Confirmer(chat, env.conn, _desc_fn(env.conn, env.cfg["id"]), confirm_low=0.55)
+    assert partition(_items(uv(0), uv(52)), 0.70, 21, confirmer=conf) == [["i0"], ["i1"]]
+    assert conf.calls == 1 and conf.cache_hits == 0
+    assert env.conn.execute("SELECT output FROM llm_decisions").fetchone()[0] == \
+        "the items are clearly the same story"
+
+    conf2 = Confirmer(FakeChat(), env.conn, _desc_fn(env.conn, env.cfg["id"]), confirm_low=0.55)
+    assert partition(_items(uv(0), uv(52)), 0.70, 21, confirmer=conf2) == [["i0"], ["i1"]]
+    assert conf2.calls == 0 and conf2.cache_hits == 1  # same key, cached reply, no call
+
+
 # ------------------------------------------------------- cache + budget
 
 def test_cache_prevents_second_call(env):
@@ -207,7 +229,7 @@ def _seed_zone_pair(env):
     return sim
 
 
-def test_eval_confirm_writes_only_llm_decisions(env, capsys):
+def test_eval_confirm_writes_only_cache_tables(env, capsys):
     _seed_zone_pair(env)
     env.cfg["llm"] = {"editor": {"provider": "fake", "allow_private": False}}
     golden = env.data_dir / "golden.json"
@@ -220,8 +242,11 @@ def test_eval_confirm_writes_only_llm_decisions(env, capsys):
     assert "precision" in out and "b3_f1" in out and out["confirm_low"] == 0.55
     after_stories = env.conn.execute(
         "SELECT COUNT(*) FROM stories WHERE reader_id = ?", (env.cfg["id"],)).fetchone()[0]
-    assert before_stories == after_stories == 0  # only llm_decisions was written
+    assert before_stories == after_stories == 0  # stories untouched
+    # the one real confirm call is accounted: decision cache + day counter, nothing else
     assert env.conn.execute("SELECT COUNT(*) FROM llm_decisions").fetchone()[0] == 1
+    assert env.conn.execute(
+        "SELECT calls FROM llm_usage WHERE reader_id = ?", (env.cfg["id"],)).fetchone()[0] == 1
     assert line == out
 
 
