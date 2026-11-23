@@ -4,9 +4,10 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import config, db, ingest, media as media_mod
+from . import config, db, ingest, media as media_mod, status
 from . import sources as sources_registry
 from .edition import build_edition, snapshot_path
+from .edition import build as edition_build
 from .editor import cluster
 from .editor.changes import note_changes
 from .editor.writeup import write_stories
@@ -415,25 +416,90 @@ def cmd_media(args) -> int:
 
 def cmd_edition(args) -> int:
     cfg = config.load_reader(args.reader)
+    data = config.data_dir()
     conn = db.connect(_db_path())
     try:
         db.init(conn)
+        # the build's input delta: what changed since the reader's previous
+        # edition (drives new_items in the status file)
+        prev = edition_build.previous_built_ts(conn, args.reader)
+        new_items = edition_build.new_items_since(conn, args.reader, prev)
         edition = build_edition(
             conn, args.reader, cfg, date_str=args.date,
             max_privacy=args.max_privacy, force=args.force,
-            data_dir=config.data_dir(),
+            data_dir=data,
         )
     except (ValueError, FileExistsError) as e:
+        status.record_failure(data, args.reader, e)
         print(str(e), file=sys.stderr)
         return 2
+    except BaseException as e:
+        # any other exception propagates as today; the file still says the
+        # reader's edition is now late, which is exactly what the owner checks
+        status.record_failure(data, args.reader, e)
+        raise
     finally:
         conn.close()
+    status.record_success(data, args.reader, edition, new_items=new_items)
     counts = ", ".join(f"{s['id']}={len(s['stories'])}" for s in edition["sections"])
     print(
         f"edition reader={args.reader} date={edition['date']} max={args.max_privacy}: "
         f"portada={len(edition['portada'])} stories={len(edition['stories'])} "
         f"sections[{counts}] → {snapshot_path(config.data_dir(), args.reader, edition['date'], args.max_privacy)}"
     )
+    return 0
+
+
+def cmd_status(args) -> int:
+    """`gaceta status`: read-only reader build health from <data>/status/.
+
+    One JSON file per reader, written by `gaceta edition`; the command only
+    reads them (no database, no locks) so an owner's agent can poll freely."""
+    import json
+
+    data = config.data_dir()
+    if args.reader:
+        try:
+            doc = status.load(data, args.reader)
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        if doc is None:
+            print(f"no status file for reader '{args.reader}' "
+                  f"(run: gaceta edition --reader {args.reader})", file=sys.stderr)
+            return 2
+        docs = {args.reader: doc}
+    else:
+        docs = status.load_all(data)
+    if args.json:
+        rows = {rid: dict(doc, age_s=status.age_s(doc)) for rid, doc in docs.items()}
+        print(json.dumps(rows[args.reader] if args.reader else rows,
+                         ensure_ascii=False, indent=2))
+        return 0
+    if not docs:
+        print(f"no reader status under {status.status_dir(data)} yet "
+              "(it appears after the first `gaceta edition` run)")
+        return 0
+    for rid, doc in docs.items():
+        bits = [f"reader={rid}"]
+        if doc.get("skipped"):
+            bits.append(f"skipped={doc['skipped']}")
+        bits.append(f"built={doc.get('built_at') or 'never'}")
+        age = status.age_s(doc)
+        if age is not None:
+            bits.append(f"age={age}s")
+        if doc.get("edition_id"):
+            bits.append(f"edition={doc['edition_id']}")
+        if doc.get("new_items") is not None:
+            bits.append(f"new_items={doc['new_items']}")
+        if doc.get("last_fail"):
+            bits.append(f"last_fail={doc['last_fail']}")
+            bits.append(f"consecutive_failures={doc.get('consecutive_failures') or 0}")
+            if doc.get("fail_reason"):
+                bits.append(f"reason={doc['fail_reason']}")
+        else:
+            bits.append("ok")
+        print(" ".join(bits))
     return 0
 
 
@@ -969,6 +1035,13 @@ def main(argv=None) -> int:
     ped.add_argument("--max-privacy", default="private", choices=("public", "household", "private"))
     ped.add_argument("--force", action="store_true", help="overwrite an existing snapshot")
     ped.set_defaults(func=cmd_edition)
+
+    pst = sub.add_parser("status", help="read-only: when each reader's edition was last built")
+    pst.add_argument("--reader", default=None,
+                     help="one reader (default: every reader with a status file)")
+    pst.add_argument("--json", action="store_true",
+                    help="print the status JSON, plus age_s of last_ok")
+    pst.set_defaults(func=cmd_status)
 
     pr = sub.add_parser("render", help="render an edition snapshot to static HTML")
     pr.add_argument("--reader", required=True)

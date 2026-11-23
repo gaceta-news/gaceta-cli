@@ -204,6 +204,7 @@ A provider that fails or returns nothing is skipped; a number never blocks the p
 | `write` | LLM write-ups for stories that changed (`--max-llm-calls`, `--max-change-calls` cap spend) |
 | `media` | cache thumbnails for recent stories |
 | `edition`, `render` | build an immutable edition snapshot and render it to HTML |
+| `status` | read-only reader build health: last ok/fail build per reader, from `<data>/status/` (no database) |
 | `serve` | localhost server with reactions (put a reverse proxy or a tailnet in front) |
 | `print` | one-file HTML/PDF edition, for readers without a device |
 | `trial` | finite manual run of the real pipeline: preview/start/run/status/stop/keep/remove — synthetic offline reader, fake models only, 1 run/day, ≤3 runs total, 7-day expiry, no scheduling ([docs/release/trial.md](docs/release/trial.md)) |
@@ -241,6 +242,20 @@ Early (v0.2) and used every day by its authors. Known gaps:
   public stories and get an evidence-graded "what changed since I last read"
   brief without ever touching the private database. An MCP server on top of it
   is still on the roadmap.
+
+## Always-on health
+
+On an always-on box the paper builds itself on a schedule, so gaceta records what happened
+where a health check can read it without parsing logs:
+
+- After every `gaceta edition` run — success, failure or a nothing-new skip — the CLI
+  rewrites `<data>/status/<reader>.json` atomically:
+  `reader, built_at, last_ok, last_fail, fail_reason, edition_id, new_items, llm_calls,
+  consecutive_failures` (plus `skipped` after a skip). `fail_reason` is a short,
+  scrubbed line: no URLs with query strings, home paths folded to `~`.
+- `gaceta status [--reader <id>] [--json]` prints that file (plus `age_s` of `last_ok`),
+  or every reader's file. Read-only: no database is opened, so a cron or an owner's
+  agent can poll it freely.
 
 ## Development
 
