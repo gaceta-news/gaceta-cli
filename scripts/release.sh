@@ -21,7 +21,6 @@ DRY="${2:-}"
 TAG="v$VERSION"
 REPO="gaceta-news/gaceta-cli"
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
-export TZ=UTC
 
 die() { echo "release: $*" >&2; exit 1; }
 step() { echo; echo "== $*"; }
