@@ -1,6 +1,6 @@
 """Roadmap 11c: folio/dateline furniture + instrument taste transparency.
 
-folio.code fingerprints the input items; date_label is Spanish with weekday and
+folio.code is the edition date (YYYYMMDD); date_label is Spanish with weekday and
 no locale dependency; window_end is the local HH:MM of built_at. instrument
 counts portada stories that are only there because of the owner's taste
 adjustments. Renderers must tolerate editions without either block, escape
@@ -8,7 +8,6 @@ everything, and never show the instrument on public surfaces (privacy canaries
 in test_privacy.py cover the rest)."""
 from __future__ import annotations
 
-import hashlib
 import re
 import time
 from datetime import date as date_cls
@@ -60,26 +59,22 @@ def _react_more(env, story_id):
 
 # ---------------------------------------------------------------- folio block
 
-def test_folio_code_is_stable_and_changes_with_items(env):
+def test_folio_code_is_date_based_and_stable_across_rebuilds(env):
     _fixture(env)
     kw = dict(date_str=_edition_date(), max_privacy="private",
               data_dir=env.data_dir, force=True)
     ed1 = build_edition(env.conn, env.cfg["id"], env.cfg, **kw)
     ed2 = build_edition(env.conn, env.cfg["id"], env.cfg, **kw)
-    assert re.fullmatch(r"[0-9A-F]{6}", ed1["folio"]["code"])
-    assert ed2["folio"]["code"] == ed1["folio"]["code"]  # same items → same code
-    # the code is the first 6 of sha1 over the sorted member item ids
-    ids = sorted(r[0] for r in env.conn.execute(
-        "SELECT DISTINCT si.item_id FROM story_items si"))
-    assert ed1["folio"]["code"] == hashlib.sha1(
-        "\x00".join(ids).encode()).hexdigest()[:6].upper()
-    # one more item in an existing story → different fingerprint
+    assert re.fullmatch(r"\d{8}", ed1["folio"]["code"])
+    assert ed1["folio"]["code"] == ed1["date"].replace("-", "")
+    assert ed2["folio"]["code"] == ed1["folio"]["code"]
+    # More items on the same edition day do not invent a new issue number.
     add_item(env, "hi0b", "Hi zero bis", "cuerpo alto numero 0", "noted", "public",
              T0 + 5 * DAY)
     embed_items(env.conn, env.cfg["id"], FakeEmbedder())
     run_cluster.cluster(env.conn, env.cfg["id"], env.cfg, rebuild=True)
     ed3 = build_edition(env.conn, env.cfg["id"], env.cfg, **kw)
-    assert ed3["folio"]["code"] != ed1["folio"]["code"]
+    assert ed3["folio"]["code"] == ed1["folio"]["code"]
 
 
 def test_folio_counts_date_label_and_window_end(env, monkeypatch):
@@ -152,10 +147,12 @@ def test_render_shows_folio_dateline_rows_and_instrument_when_private(env):
     assert f'No. {folio["code"]}' in doc
     assert f"24 h a las {folio['window_end']}" in doc
     assert folio["date_label"] in doc
-    assert (f'{folio["portada"]} de {folio["stories_total"]} historias'
-            in doc)
-    assert f'{folio["items_total"]} ítems' in doc
-    assert f'{folio["voices"]} voces' in doc
+    match = re.search(r'<p class="dateline-row">(.*?)</p>', doc)
+    assert match
+    row = match.group(1)
+    assert f'{folio["stories_total"]} historias' in row
+    assert re.findall(r"\d+", row) == [str(folio["stories_total"])]
+    assert "ítems" not in row and "voces" not in row and " de " not in row
     assert "Para Test Reader" in doc
     # folio row sits above the masthead, dateline row below it
     assert (doc.index('class="folio-row"') < doc.index("<h1>La Gaceta</h1>")
@@ -174,7 +171,7 @@ def test_public_render_and_print_show_furniture_but_never_the_instrument(env):
     ed = _rendered_private_with_instrument(env)
     doc = render_html.render(ed, "public")
     assert f'No. {ed["folio"]["code"]}' in doc
-    assert "historias" in doc and "voces" in doc
+    assert "historias" in doc and "voces" not in doc
     assert "por tus reacciones" not in doc
     printed = print_html(ed, "public")
     assert f'No. {ed["folio"]["code"]}' in printed
@@ -206,7 +203,7 @@ def test_furniture_escapes_hostile_values(env):
     ed["reader"]["name"] = "Alice <b>negrita</b>"
     for doc in (render_html.render(ed, "private"), print_html(ed, "private")):
         assert "<svg" not in doc and "<script>alert" not in doc
-        assert "&lt;svg onload=" in doc
+        assert "onload=" not in doc
         assert "&lt;script&gt;" in doc
         # the quote is escaped to &quot;, so no attribute breakout is possible
         assert 'onmouseover="' not in doc

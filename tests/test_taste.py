@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import time
 
+import pytest
+
 from gaceta.edition import build_edition
 from gaceta.editor import cluster as run_cluster
 from gaceta.editor.cluster import embed_items
@@ -67,7 +69,7 @@ def test_owner_up_raises_and_explains(env):
     ed = _build(env)
     assert _rank(ed, "B one") < _rank(ed, "A one")
     reasons = _by_title(ed)["B one"][1]["score_reasons"]
-    assert any("👍" in r and "+2.0" in r for r in reasons)
+    assert any("👍" in r and "+2.0" not in r for r in reasons)
 
 
 def test_more_less_weights(env):
@@ -78,9 +80,9 @@ def test_more_less_weights(env):
     _react(env, sid_a, "more", "Test Reader")
     _react(env, sid_b, "less", "Test Reader")
     ed = _build(env)
-    assert any("Más así" in r and "+2.0" in r
+    assert any("Más así" in r and "+2.0" not in r
                for r in _by_title(ed)["A one"][1]["score_reasons"])
-    assert any("Menos así" in r and "-2.5" in r
+    assert any("Menos así" in r and "-2.5" not in r
                for r in _by_title(ed)["B one"][1]["score_reasons"])
 
 
@@ -125,12 +127,14 @@ def test_similarity_transfer_from_liked_story(env):
     _react(env, sid_c, "up", "Test Reader")
     ed = _build(env)
     reasons_a = _by_title(ed)["A one"][1]["score_reasons"]
-    assert any("Parecido a algo que te gustó" in r for r in reasons_a)
+    assert "Parecido a algo que te gustó" in reasons_a
+    assert all("(+" not in r and "(-" not in r for r in reasons_a)
     reasons_b = _by_title(ed)["B one"][1]["score_reasons"]
     assert not any("Parecido" in r for r in reasons_b)  # unrelated vocabulary
 
 
-def test_author_affinity(env):
+@pytest.mark.parametrize("kind, phrase", [("down", "no te convence"), ("more", "suele gustarte")])
+def test_author_affinity(env, kind, phrase):
     _fixture(env)
     # attribute every item of story A to the same author Alice dislikes
     ed0 = _build(env)
@@ -142,10 +146,11 @@ def test_author_affinity(env):
         (sid_a, sid_b),
     )
     env.conn.commit()
-    _react(env, sid_b, "down", "Test Reader")  # disliked a story by this author…
+    _react(env, sid_b, kind, "Test Reader")
     ed = _build(env)
     reasons_a = _by_title(ed)["A one"][1]["score_reasons"]
-    assert any("autor que no te convence" in r and "-0.5" in r for r in reasons_a)
+    assert any(phrase in r and "Charlie Columnist" in r for r in reasons_a)
+    assert all("(+" not in r and "(-" not in r for r in reasons_a)
 
 
 def test_reaction_decays_with_age(env):
@@ -160,7 +165,10 @@ def test_reaction_decays_with_age(env):
     )
     env.conn.commit()
     ed = _build(env, now=int(now) + 60)
-    assert any("👍" in r and "+1.0" in r for r in _by_title(ed)["B one"][1]["score_reasons"])
+    from gaceta.editor.taste import adjustments
+    adj = adjustments(env.conn, env.cfg["id"], env.cfg, now=int(now) + 60)
+    assert abs(adj.delta[sid] - 1.0) < 0.01
+    assert any("👍" in r and "+1.0" not in r for r in _by_title(ed)["B one"][1]["score_reasons"])
 
 
 def test_old_reaction_fades_entirely(env):

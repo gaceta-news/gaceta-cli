@@ -111,11 +111,16 @@ _WRITEUP_SYSTEM = (
     "write its story card. Reply with JSON only, no markdown fences: "
     '{"title": str, "summary": str, "why_it_matters": str or null, "confidence": float 0..1}. '
     "title: a short headline. summary: 2-3 short sentences, at most ~70 words. "
-    "why_it_matters: one sentence on why the reader might care, or null. Address the "
+    "why_it_matters: return null for most stories. Only write one plain sentence when the "
+    "items establish a concrete, specific stake for this reader (a decision, cost, deadline "
+    "or direct consequence). General interest, hypothetical relevance and generic advice "
+    "are not a stake: return null. Never speculate about the reader’s infrastructure. Address the "
     "reader directly in second person (Spanish: tú); never name the reader, their "
     "assistant or whoever wrote the reader profile. Only make claims supported by the given items; "
     "Lead with what changed or what the evidence adds. Compare sources when they differ, "
-    "distinguish reporting from allegations, findings from speculation, and use the source body "
+    "attribute allegations and speculative findings to their sources and state the evidence "
+    "positively. Ban defensive contrast templates: 'es X, no un Y' / 'X, not Y'. "
+    "State what it is, not what it is not. Use the source body "
     "rather than repeating its headline. Never invent numbers, names, dates or outlets. If the items are thin, say so and "
     "lower confidence."
 ) + QUOTE_RULE + UNTRUSTED_RULE

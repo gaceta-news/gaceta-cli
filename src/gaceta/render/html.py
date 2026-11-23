@@ -164,6 +164,7 @@ h1, h2, h3, h4 {
   line-height: 1.58;
 }
 .lead .summary { font-size: 1.12rem; }
+.meta-part { display: inline-block; margin-right: 1em; }
 .story-update { margin: 0.65rem 0 0; padding-left: 0.7rem; border-left: 3px solid var(--accent); }
 .update-label { margin: 0; color: var(--accent); font-size: 0.75rem; font-weight: 700; }
 .story-update .summary { margin-top: 0.15rem; }
@@ -177,24 +178,7 @@ h1, h2, h3, h4 {
   color: var(--muted);
   overflow-wrap: anywhere;
 }
-.why {
-  max-width: 68ch;
-  margin: 0.7rem 0 0;
-  padding: 0.05rem 0 0.05rem 0.8rem;
-  border-left: 2px solid var(--accent);
-  color: var(--muted);
-  font-size: 0.92rem;
-  line-height: 1.5;
-}
-.why-label {
-  margin: 0 0 0.1rem;
-  color: var(--accent);
-  font-size: 0.7rem;
-  font-weight: 700;
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-}
-.why p:last-child { margin: 0; }
+
 .corrections {
   max-width: 72ch;
   margin: 1rem 0 0;
@@ -623,14 +607,14 @@ def _folio_row(folio: dict, edition: dict) -> str:
     """Honest furniture above the masthead: No. code · date · 24 h window.
     Never a headline teaser, never a price. Slots shrink with ellipsis."""
     slots = []
-    code = str(folio.get("code") or "").strip()
-    if code:
-        slots.append(f'<span class="slot">{_esc(_t("folio.no", code=code))}</span>')
     raw_date = str(edition.get("date") or "")
     try:
         day = date.fromisoformat(raw_date[:10])
     except ValueError:
         day = None
+    # Cached snapshots may still carry a content hash: never print it as an issue number.
+    if day:
+        slots.append(f'<span class="slot">{_esc(_t("folio.no", code=day.strftime("%Y%m%d")))}</span>')
     label = (str(folio.get("date_label") or "").strip() if folio.get("lang", "es") == _LANG.get()
              else "") or _long_date(raw_date)
     if label:
@@ -646,23 +630,14 @@ def _folio_row(folio: dict, edition: dict) -> str:
 
 
 def _dateline_row(folio: dict, edition: dict, reader_name: str) -> str:
-    """How big the day was, with denominators: portada/stories · items · voices."""
+    """One plain story count, without ranking denominators or pipeline totals."""
     stories = edition.get("stories") or {}
     left = (f'<span class="slot"><span class="reader">{_esc(_t("dateline.for", name=reader_name))}</span></span>'
             if reader_name else "")
-    portada_n = _count(folio.get("portada"))
-    if portada_n is None:
-        portada_n = len([s for s in edition.get("portada") or [] if s in stories])
-    stories_total = _count(folio.get("stories_total")) or len(stories)
-    items_total = _count(folio.get("items_total"))
-    mid = _esc(_t("dateline.stories", n=portada_n, total=stories_total))
-    if items_total is not None:
-        mid += f'<span class="wide-only"> · {_esc(_t("dateline.items", n=items_total))}</span>'
-    voices = _count(folio.get("voices"))
-    right = (f'<span class="slot slot-right">{_esc(_t("dateline.voices", n=voices))}</span>'
-             if voices is not None else "")
+    total = _count(folio.get("stories_total")) or len(stories)
+    count = _esc(_t("dateline.story_count", n=total))
     return (f'<p class="dateline-row">{left}'
-            f'<span class="slot slot-mid">{mid}</span>{right}</p>')
+            f'<span class="slot slot-right">{count}</span></p>')
 
 
 def _stale_banner(edition: dict, now: datetime) -> str:
@@ -899,7 +874,7 @@ def _render_source(source: dict, media_prefix: str = "../media/") -> str:
     if published := _publication_day(source.get("published")):
         date_label = _esc(i18n.day_month_year(_LANG.get(), published))
         meta_bits.append(f'<time datetime="{published}">{date_label}</time>')
-    meta = " · ".join(meta_bits)
+    meta = "".join(f'<span class="meta-part">{part}</span>' for part in meta_bits)
     added = _count(source.get("added"))
     li = f'<li data-added="{added}">' if added else "<li>"
     if meta:
@@ -1038,12 +1013,7 @@ def _render_story(story_id: str, story: dict, *, lead: bool = False,
         parts.append(since)
 
     if story.get("why_it_matters"):
-        parts.append(
-            '<aside class="why">'
-            f'<p class="why-label">{_esc(_t("story.why"))}</p>'
-            f'<p>{_esc(story.get("why_it_matters"))}</p>'
-            "</aside>"
-        )
+        parts.append(f'<p class="summary stake">{_esc(story["why_it_matters"])}</p>')
 
     corrections = story.get("corrections") or []
     if corrections:
@@ -1250,7 +1220,7 @@ def render_cond_box(box: dict, *, built_at: object = None, now: object = None,
         stamp_bits.append(_t("conditions.stamp", time=hhmm) if hhmm else _t("conditions.not_live"))
     if box.get("source"):
         stamp_bits.append(str(box["source"]))
-    parts.append(f'<p class="{stamp_class}">{_esc(" · ".join(stamp_bits))}</p>')
+    parts.append(f'<p class="{stamp_class}">{_esc("; ".join(stamp_bits))}</p>')
     parts.append("</div>")
     return "\n".join(parts)
 
@@ -1424,7 +1394,7 @@ def _render(edition: dict, max_level: str, media_prefix: str, now: datetime) -> 
         if saved_link:
             dateline.append(saved_link)
         if dateline:
-            parts.append(f'<p class="dateline">{" · ".join(dateline)}</p>')
+            parts.append(f'<p class="dateline">{"".join(f'<span class="meta-part">{part}</span>' for part in dateline)}</p>')
     updated = []
     built_hhmm = _hhmm(edition.get("built_at"))
     if built_hhmm:
@@ -1436,7 +1406,7 @@ def _render(edition: dict, max_level: str, media_prefix: str, now: datetime) -> 
     if folio and saved_link:
         updated.insert(0, saved_link)
     if updated:
-        parts.append(f'<p class="dateline updated">{" · ".join(updated)}</p>')
+        parts.append(f'<p class="dateline updated">{"".join(f'<span class="meta-part">{part}</span>' for part in updated)}</p>')
     parts.append("</header>")
     parts.append("<main>")
 
@@ -1567,7 +1537,7 @@ def _render_guardadas(reader_id: str, by: str, entries: list[dict], masthead: st
         '<div class="wrap">',
         '<header class="masthead">',
         f"<h1>{_esc(paper)}</h1>",
-        f'<p class="dateline">{" · ".join(dateline)}</p>',
+        f'<p class="dateline">{"".join(f'<span class="meta-part">{part}</span>' for part in dateline)}</p>',
         "</header>",
         "<main>",
         '<section class="section" data-section="guardadas">',

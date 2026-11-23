@@ -77,7 +77,7 @@ def _edition(langs):
     }
 
 
-SPANISH_UI = ("Fuentes", "Por qué te importa", "En desarrollo", "historias", "Para Ana",
+SPANISH_UI = ("Fuentes", "En desarrollo", "historias", "Para Ana",
               "fuentes más", "miércoles")
 
 
@@ -86,7 +86,7 @@ def test_render_english_has_no_spanish_interface():
     assert '<html lang="en">' in out
     for word in SPANISH_UI:
         assert word not in out, word
-    for word in ("Sources", "Why it matters to you", "Developing", "For Ana", "2 more sources",
+    for word in ("Sources", "Cheap light.", "Developing", "For Ana", "2 more sources",
                  "Wednesday, November 18, 2026", "Wed, Nov 18", "24 h to 06:30"):
         assert word in out, word
 

@@ -357,7 +357,7 @@ def test_taste_open_weight(env):
     adj = adjustments(env.conn, READER, env.cfg, items_by_story)
     assert sid_a not in adj.delta                      # open never boosts the opened story
     assert adj.delta.get(sid_c, 0) > 0                 # …but something similar
-    assert any(r.startswith("Abriste algo parecido (+") for r in adj.reasons.get(sid_c, []))
+    assert "Abriste algo parecido" in adj.reasons.get(sid_c, [])
 
 
 # ------------------------------------------------------------ CLI export

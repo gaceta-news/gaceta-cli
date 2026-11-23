@@ -103,7 +103,7 @@ def test_owner_save_weight_and_label_household_ignored(env):
     env.conn.commit()
     adj = adjustments(env.conn, rid, env.cfg, now=now)
     assert adj.delta.get("stT") == taste.KIND_WEIGHTS["save"]   # Bob's save doesn't steer
-    assert "Le diste 'Guardar' (1 vez, +3.0)" in adj.reasons["stT"]
+    assert "Le diste 'Guardar' (1 vez)" in adj.reasons["stT"]
 
 
 # ------------------------------------------------------------ guardadas page

@@ -91,7 +91,7 @@ def test_edition_carries_boxes_and_render_stamps_them(env, fake_providers):
     assert ed["conditions"][0]["id"] == "good"
     doc = render_html.render(ed, "private")
     assert '<aside class="conditions"' in doc
-    assert "a las 06:25, no en vivo · estación propia" in doc
+    assert "a las 06:25, no en vivo; estación propia" in doc
     assert "niebla &lt;b&gt;" in doc and "niebla <b>" not in doc
     # after the portada, before the first section
     assert doc.index('class="portada"') < doc.index('class="conditions"') < doc.index('class="section"')
@@ -241,7 +241,7 @@ def test_snapshot_only_render_is_byte_identical(env, live_providers):
               '<dl class="cond-facts">\n'
               '<div><dt>Lluvia 24 h</dt><dd>0 mm</dd></div>\n'
               '</dl>\n'
-              '<p class="cond-stamp">a las 06:25, no en vivo · estación propia</p>\n'
+              '<p class="cond-stamp">a las 06:25, no en vivo; estación propia</p>\n'
               '</div>')
     assert ('<aside class="conditions" aria-label="Condiciones">\n'
             + golden + "\n</aside>") in doc
@@ -366,7 +366,7 @@ def test_live_fragment_render_and_stale_stamp():
     assert frag["id"] == "wx" and frag["observed_at"] == "2026-11-19T12:00:00-05:00"
     assert frag["ear_html"].startswith('<a class="ear" id="cond-ear" data-cond="cond-wx"')
     assert 'id="cond-wx" data-live="1" data-observed="2026-11-19T12:00:00-05:00"' in frag["html"]
-    assert "en vivo · 12:00 · estación propia" in frag["html"]
+    assert "en vivo · 12:00; estación propia" in frag["html"]
     assert render_html.render_cond_fragments([box], now="2026-11-19T12:01:00-05:00",
                                              lang="en")[0]["html"].count("live · 12:00")
     # a 150-minute-old observation admits its age, muted
