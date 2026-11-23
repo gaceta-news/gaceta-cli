@@ -1,7 +1,7 @@
 # gaceta — qué cambió en tus historias desde la última vez que las leíste
 
 > Una página canónica, dos idiomas: [English](landing.en.md) · **Español**
-> Borrador — candidato 0.3.0b3 · fuente única: `packaging/catalog.json`
+> Borrador — candidato 0.3.0b4 · fuente única: `packaging/catalog.json`
 > (renderizado por `scripts/build-packages.py`, verificado por `scripts/check-parity.py`)
 
 ## El trabajo de todos los días
@@ -103,11 +103,11 @@ empaquetado, luego `gaceta agent since --reader demo --baseline … --path DIR/e
 ## Instalación (fijada a versión)
 
 ```bash
-uv tool install git+https://github.com/gaceta-news/gaceta-cli@v0.3.0b3
-gaceta --version        # debe imprimir 0.3.0b3
+uv tool install git+https://github.com/gaceta-news/gaceta-cli@v0.3.0b4
+gaceta --version        # debe imprimir 0.3.0b4
 ```
 
-**v0.3.0b3 es el pin beta previsto**, cortado en la revisión de release —
+**v0.3.0b4 es el pin beta previsto**, cortado en la revisión de release —
 hasta que el tag exista públicamente, esto es la forma del comando, no una
 URL viva. Los tags 0.2.x publicados son reales pero previos a los assets del
 demo para agentes, a `--version` y a los skills empaquetados: fijar una
@@ -156,7 +156,7 @@ aparte, pre-registrada.
 
 | Qué | Resultado |
 |---|---|
-| Candidato | gaceta 0.3.0b3 (P4 beta candidate; the v-tag is cut at release review — published 0.2.x tags predate these features, so 0.2.0 is not a valid pin for them) — `gaceta --version`, el METADATA del wheel y cada sello de artefacto coinciden |
+| Candidato | gaceta 0.3.0b4 (P4 beta candidate; the v-tag is cut at release review — published 0.2.x tags predate these features, so 0.2.0 is not a valid pin for them) — `gaceta --version`, el METADATA del wheel y cada sello de artefacto coinciden |
 | Codex | codex-cli 0.171.0 — stock `codex plugin marketplace add` + `codex plugin list` on a sandboxed CODEX_HOME; no experimental features or adapters enabled |
 | Hermes | Hermes Agent v0.23.2 — packaged skill validated against the stock skills conventions (frontmatter, layout, description limit); registry/hub install is exercised only once the release source is public |
 | Python | 3.12 (floor of requires-python) |

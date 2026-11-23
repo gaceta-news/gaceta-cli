@@ -4,7 +4,7 @@ Status: **DRAFT — not submitted anywhere.** Registry/hub acceptance,
 indexing and search are external dependencies; submission happens only
 after the P5 gates pass, from the pinned public revision. This file records
 exactly what would be listed, from the single metadata source
-(`packaging/catalog.json`, candidate 0.3.0b3).
+(`packaging/catalog.json`, candidate 0.3.0b4).
 
 ## Listing fields
 
@@ -15,7 +15,7 @@ exactly what would be listed, from the single metadata source
 | Description | Find what changed in stories from the reader's feeds. |
 | Category | `research` (category placement is a listing decision; `research` matches the reading/feeds domain) |
 | Tags | news, feeds, reading, change-tracking, citations |
-| Version | `0.3.0b3` (stamped from `gaceta.__version__`; CI rejects drift) |
+| Version | `0.3.0b4` (stamped from `gaceta.__version__`; CI rejects drift) |
 | Author | Gaceta News (gaceta-news) |
 | License | AGPL-3.0-only |
 | Platforms | linux, macos, windows |
@@ -36,15 +36,15 @@ zero data.
 
 ## Install instructions (for the listing)
 
-From a checkout/tag of v0.3.0b3: unzip `packaging/dist/archives/gaceta-hermes-skill-v0.3.0b3.zip`
+From a checkout/tag of v0.3.0b4: unzip `packaging/dist/archives/gaceta-hermes-skill-v0.3.0b4.zip`
 into `~/.hermes/skills/` (creates `research/gaceta/`), or:
 
 ```bash
 mkdir -p ~/.hermes/skills/research
-unzip gaceta-hermes-skill-v0.3.0b3.zip -d ~/.hermes/skills/
+unzip gaceta-hermes-skill-v0.3.0b4.zip -d ~/.hermes/skills/
 ```
 
-Engine (separate, pinned): `uv tool install git+https://github.com/gaceta-news/gaceta-cli@v0.3.0b3`
+Engine (separate, pinned): `uv tool install git+https://github.com/gaceta-news/gaceta-cli@v0.3.0b4`
 
 Direct registry/HTTPS install (once the release is public and listed):
 `hermes skills install <listing url for SKILL.md>`
@@ -55,7 +55,7 @@ Validated: frontmatter against the stock Hermes skills conventions
 (name/description/version/author/license/platforms, description ≤ 60 chars
 one sentence), layout (one directory, `SKILL.md` + `scripts/` + `assets/`),
 and the packaged offline demo end to end on a clean installed wheel
-(gaceta 0.3.0b3 (P4 beta candidate; the v-tag is cut at release review — published 0.2.x tags predate these features, so 0.2.0 is not a valid pin for them)). Not claimed: blind discovery, organic search ranking,
+(gaceta 0.3.0b4 (P4 beta candidate; the v-tag is cut at release review — published 0.2.x tags predate these features, so 0.2.0 is not a valid pin for them)). Not claimed: blind discovery, organic search ranking,
 configured usage, reader retention. Not tested end to end until the release
 source is public: `hermes skills install` from the registry/HTTPS path
 itself.
