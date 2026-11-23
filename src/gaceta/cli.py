@@ -312,7 +312,10 @@ def cmd_stats(args) -> int:
         cfg = config.load_reader(args.reader)
     except OSError:
         cfg = {}
-    day = budget.day_key(cfg)
+    try:
+        day = budget.day_key(cfg)
+    except ValueError:
+        day = budget.day_key({})  # a broken tz: write paths refuse it; show the local day
     limit = (cfg.get("llm") or {}).get("daily_max_calls")
     row = conn.execute(
         "SELECT calls FROM llm_usage WHERE reader_id = ? AND day = ?", (args.reader, day)
