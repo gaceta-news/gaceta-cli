@@ -35,6 +35,7 @@ HEX = "ab" * 32
 HEX2 = "cd" * 32
 READER = "testreader"
 OWNER = "Test Reader"
+VOICES = ("Ana Ruiz", "Ben Okafor", "Cy Lund")
 
 
 def _story(env, sid, item_ids, title, last_seen=T0 + 2 * DAY):
@@ -70,12 +71,17 @@ def _seed(env):
         )
     for i in range(3):
         add_item(env, f"c{i}", f"Cited {i}",
-                 f"see https://{CITED}/p{i} and https://github.com/x/y{i}", "noted", "public", T0 + i * DAY)
+                 f"see https://{CITED}/2026/11/river-path-report-{i} and https://github.com/x/y{i}",
+                 "noted", "public", T0 + i * DAY)
         add_item(env, f"sa{i}", f"Same author {i}",
-                 f"newsletter at https://zorbo.substack.com/p{i}", "noted", "public", T0 + i * DAY)
+                 f"newsletter at https://zorbo.substack.com/p/zorbo-weekly-letter-{i}",
+                 "noted", "public", T0 + i * DAY)
         add_item(env, f"os{i}", f"Other sub {i}",
-                 f"read https://other-gazette.substack.com/p{i}", "noted", "public", T0 + i * DAY)
+                 f"read https://other-gazette.substack.com/p/valley-water-notes-{i}",
+                 "noted", "public", T0 + i * DAY)
     env.conn.execute("UPDATE items SET author = 'Zorbo' WHERE id LIKE 'sa%'")
+    for i, who in enumerate(VOICES):  # independent citers: one source, distinct authors
+        env.conn.execute("UPDATE items SET author = ? WHERE id IN (?, ?)", (who, f"c{i}", f"os{i}"))
     _story(env, "stT", ["t1", "t2"], "Mountain review week")
     _story(env, "stU", ["t3"], "A quiet pump")
     for i in range(3):
@@ -149,7 +155,8 @@ def test_trial_sources_respect_privacy_and_scores(env):
     env.conn.execute("UPDATE stories SET privacy = 'private' WHERE id = 'stT'")
     env.conn.commit()
     trials = {t["key"]: t for t in trial_sources(env.conn, READER, SINCE, max_privacy="public")}
-    assert trials[TRIAL_FEED]["story_ids"] == []  # its only story is private
+    assert TRIAL_FEED not in trials  # its only story is private: nothing of it in this paper
+    assert TRIAL_YT in trials
 
 
 # ------------------------------------------------------------ suggestions
@@ -384,3 +391,86 @@ def test_long_host_label_is_shortened_for_display():
     assert max(len(l) for l in short.split(".")) <= 32
     assert _short_label("simonwillison.net") == "simonwillison.net"
     assert _short_label("Latent Space") == "Latent Space"
+
+
+# ------------------------------------------------------------ signal quality (v1)
+
+def test_link_kind_classifies_citations():
+    from gaceta.discovery import _link_kind
+    assert _link_kind("https://news.example/2026/11/03/") == "article"
+    assert _link_kind("https://news.example/opinion/the-river-came-back") == "article"
+    assert _link_kind("https://news.example/notes/q3-update.html") == "page"  # 2 words only
+    assert _link_kind("https://blob.example/" + HEX) == "media"
+    assert _link_kind("https://cdn.example/a/pic-of-the-day.jpg") == "media"
+    assert _link_kind("https://chain.example/block/" + HEX) == "media"
+    assert _link_kind("https://git.example/npub1abcdef/repo") == "media"
+    assert _link_kind("https://app.example/") == "root"
+    assert _link_kind("https://app.example/?ref=me") == "root"
+    assert _link_kind("https://forum.example/items/1616039") == "page"
+    assert _link_kind("https://coinjoin") == "junk"
+    assert _link_kind("http://[::1") == "junk"
+    assert _link_kind("https://chain.example/address/bc1qphukp9rjfc4rcej7erpm9ae20xmtspw8pcddrr") == "page"
+    assert _link_kind("https://music.example/track/3504d80b-b4bf-4196-923b-7ed8b60caec9") == "media"
+    assert _link_kind("https://diario.example/opinion/el-r%C3%ADo-volvi%C3%B3-hoy") == "article"
+
+
+def test_site_folds_plumbing_subdomains():
+    from gaceta.discovery import _site
+    assert _site("assets.science.example.gov") == "science.example.gov"
+    assert _site("media1.giphy.example") == "giphy.example"
+    assert _site("cdn.example") == "cdn.example"          # never below two labels
+    assert _site("blog.vendor.example") == "blog.vendor.example"
+
+
+def _cite(env, iid, author, body, sid):
+    add_item(env, iid, f"Note {iid}", body, "noted", "public", T0 + DAY)
+    env.conn.execute("UPDATE items SET author = ? WHERE id = ?", (author, iid))
+    _story(env, sid, [iid], f"Story {sid}")
+
+
+def test_suggestions_ignore_media_apps_and_lone_voices(env):
+    _seed(env)
+    n = 0
+    for who in VOICES:  # three independent voices, all linking non-sources
+        for body in (f"https://blobs.example/{HEX} https://pics.example/a/sunset-over-hills.jpg",
+                     f"https://chain.example/block/{HEX2} https://wallet-app.example/",
+                     "https://tools.example/apps/foundation.mostro.app"):
+            n += 1
+            _cite(env, f"m{n}", who, body, f"stM{n}")
+    for i in range(4):  # a real site, but only one person keeps posting it
+        _cite(env, f"solo{i}", "Lone Poster", f"https://satire.example/news/a-funny-story-{i}", f"stS{i}")
+    env.conn.commit()
+    keys = {s["key"] for s in suggestions(env.conn, READER, SINCE)}
+    assert f"host:{CITED}" in keys
+    for absent in ("host:blobs.example", "host:pics.example", "host:chain.example",
+                   "host:wallet-app.example", "host:tools.example", "host:satire.example"):
+        assert absent not in keys, absent
+
+
+def test_suggestions_fold_subdomain_into_existing_site(env):
+    _seed(env)
+    env.conn.execute("INSERT INTO sources (id, kind, name, url) VALUES "
+                     "('feed:space', 'rss', 'Space desk', 'https://space.example/feed')")
+    for i, who in enumerate(VOICES):
+        _cite(env, f"sp{i}", who, f"https://assets.space.example/2026/11/rocket-launch-{i}", f"stP{i}")
+    env.conn.commit()
+    keys = {s["key"] for s in suggestions(env.conn, READER, SINCE)}
+    assert "host:assets.space.example" not in keys and "host:space.example" not in keys
+
+
+def test_suggestions_drop_sites_the_reader_pushed_away(env):
+    _seed(env)
+    now = int(time.time())
+    env.conn.executemany(
+        "INSERT INTO reactions (reader_id, story_id, kind, at, by_name) VALUES (?, ?, 'less', ?, ?)",
+        [(READER, f"stC{i}", now, OWNER) for i in range(3)])
+    env.conn.commit()
+    keys = {s["key"] for s in suggestions(env.conn, READER, SINCE)}
+    assert f"host:{CITED}" not in keys
+
+
+def test_trials_are_per_reader(env):
+    _seed(env)
+    env.conn.execute("INSERT INTO readers (id, name, langs, created_at) VALUES ('other', 'O', 'es', 0)")
+    env.conn.commit()
+    assert trial_sources(env.conn, "other", SINCE) == []  # shared collector, none in her paper
