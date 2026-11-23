@@ -22,13 +22,14 @@ import time
 
 from .. import budget as budget_mod
 from .. import i18n, privacy
-from ..editor import prompts, quotes
+from ..editor import llmcache, prompts, quotes
 from ..providers import llm as llm_providers
 
 DEFAULT_DAYS = 14
 DEFAULT_MAX_LLM_CALLS = 40
 MAX_NEW_ITEMS = 6
 MAX_CHARS = 400
+CHANGES_MAX_TOKENS = 300  # 200 cut real replies mid-JSON (ROADMAP 14)
 
 _SYSTEM = (
     "You compare two versions of one story card in a personal newspaper. The reader "
@@ -67,16 +68,8 @@ def changes_messages(prev_summary: str, cur_summary: str, new_items: list[dict],
 
 def parse_changes(text: str) -> str | None:
     """'' = nothing material; str = the change; None = unparseable reply."""
-    if not text:
-        return None
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if not m:
-        return None
-    try:
-        obj = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(obj, dict) or "what_changed" not in obj:
+    obj = prompts.loads_obj(text)
+    if obj is None or "what_changed" not in obj:
         return None
     val = obj["what_changed"]
     if val is None:
@@ -87,6 +80,10 @@ def parse_changes(text: str) -> str | None:
     if len(val) > MAX_CHARS:
         val = val[:MAX_CHARS].rsplit(" ", 1)[0] + "…"
     return val
+
+
+def _valid_change(out: str) -> bool:
+    return parse_changes(out) is not None
 
 
 def _new_items(conn: sqlite3.Connection, reader_id: str, story_id: str,
@@ -166,27 +163,24 @@ def note_changes(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
         messages = changes_messages(prev["summary"], cur["summary"], items, langs=langs)
         text = prompts.messages_text(messages)
         key = hashlib.sha256((chat.name + text).encode()).hexdigest()
-        row = conn.execute("SELECT output FROM llm_decisions WHERE key = ?", (key,)).fetchone()
-        if row is not None:
+        cached = llmcache.lookup(conn, key, valid=_valid_change, now=now)
+        if cached is not None:
             cache_hits += 1
-            out = row[0] or ""
+            out = cached
         else:
             if calls >= max_llm_calls or daily.reached():
                 budget_exhausted = True
                 break
             try:
-                out, usage = chat.complete(messages, max_tokens=200, temperature=0.0)
+                out, usage = chat.complete(messages, max_tokens=CHANGES_MAX_TOKENS, temperature=0.0)
             except llm_providers.LLMRefused as e:
                 out, usage = "", {"refused": e.code, "detail": e.detail}
             calls += 1
             daily.count()  # a real call: counts against [llm] daily_max_calls too
-            conn.execute(
-                "INSERT INTO llm_decisions (key, model, input_hash, output, usage, at) "
-                "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET "
-                "output = excluded.output, usage = excluded.usage, at = excluded.at",
-                (key, chat.name, hashlib.sha256(text.encode()).hexdigest(),
-                 out, json.dumps(usage), now),
-            )
+            if llmcache.transient(usage.get("refused")):
+                budget_exhausted = True  # quota/rate: nothing cached, next run retries
+                break
+            llmcache.store(conn, key, chat.name, text, out, usage, valid=_valid_change, now=now)
         changed = parse_changes(out)
         if changed is None:
             failed += 1

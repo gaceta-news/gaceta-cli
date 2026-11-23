@@ -127,3 +127,9 @@ def test_state_carries_seen_at(server):  # noqa: F811
 
 
 from test_serve import server  # noqa: E402,F401 — shared fixture
+
+
+def test_parse_changes_repairs_inner_quotes():
+    from gaceta.editor.changes import parse_changes
+    out = '{"what_changed": "Una nota del 22 de noviembre que dice "Test 😬", sin hechos nuevos."}'
+    assert parse_changes(out) == 'Una nota del 22 de noviembre que dice "Test 😬", sin hechos nuevos.'

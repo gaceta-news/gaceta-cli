@@ -6,7 +6,9 @@ story_versions.members, schema v4), ask the LLM for a strict-JSON story card
 and store it as a new version. Decisions are cached in llm_decisions (same key
 scheme as Confirmer: sha256(model + messages)), so reruns cost 0 calls until a
 story actually changes. Invalid JSON keeps the story unchanged (counted as a
-failure). The run stops at the call budget and reports what is left pending.
+failure) and is retried later; a quota/server error (429/5xx) is never cached and
+stops the run (llmcache, ROADMAP 14). The run stops at the call budget and
+reports what is left pending.
 """
 from __future__ import annotations
 
@@ -18,11 +20,17 @@ from pathlib import Path
 
 from .. import budget as budget_mod
 from .. import config, i18n, privacy
-from ..editor import prompts, quotes
+from ..editor import llmcache, prompts, quotes
 from ..providers import llm as llm_providers
 
 DEFAULT_DAYS = 14
 DEFAULT_MAX_LLM_CALLS = 150
+# a card is ~70 words + title + why; 400 cut real replies mid-JSON (ROADMAP 14)
+WRITEUP_MAX_TOKENS = 700
+
+
+def _valid_card(out: str) -> bool:
+    return prompts.parse_writeup(out) is not None
 
 
 def _reader_profile(cfg: dict, reader_id: str) -> str | None:
@@ -120,6 +128,7 @@ def write_stories(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
     pending = 0
     tokens = {"prompt": 0, "completion": 0}
     budget_exhausted = False
+    throttled = False
     served_models: set[str] = set()
     refused = 0
     unquoted = 0
@@ -127,34 +136,32 @@ def write_stories(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
     want_lang = (i18n.langs_list(langs) or ["en"])[0].lower()
 
     def ask(messages: list[dict]):
-        """One cached completion → (out, usage), or None when the budget is spent."""
-        nonlocal calls, cache_hits, refused
+        """One cached completion → (out, usage), or None when the budget is spent
+        or the providers are throttling (nothing is cached then: ROADMAP 14)."""
+        nonlocal calls, cache_hits, refused, throttled
         text = prompts.messages_text(messages)
         key = hashlib.sha256((chat.name + text).encode()).hexdigest()
-        row = conn.execute("SELECT output FROM llm_decisions WHERE key = ?", (key,)).fetchone()
-        if row is not None:
+        cached = llmcache.lookup(conn, key, valid=_valid_card, now=now)
+        if cached is not None:
             cache_hits += 1
-            return row[0] or "", {}
-        if calls >= max_llm_calls or daily.reached():
+            return cached, {}
+        if throttled or calls >= max_llm_calls or daily.reached():
             return None
         try:
-            out, usage = chat.complete(messages, max_tokens=400, temperature=0.0)
+            out, usage = chat.complete(messages, max_tokens=WRITEUP_MAX_TOKENS, temperature=0.0)
         except llm_providers.LLMRefused as e:
             refused += 1
             out, usage = "", {"refused": e.code, "detail": e.detail}
         calls += 1
         daily.count()  # a real call: counts against [llm] daily_max_calls too
+        if llmcache.transient(usage.get("refused")):
+            throttled = True  # quota/rate: stop asking this run, retry next run
+            return None
         tokens["prompt"] += int(usage.get("prompt_tokens") or 0)
         tokens["completion"] += int(usage.get("completion_tokens") or 0)
         if usage.get("served_model"):
             served_models.add(str(usage["served_model"]))
-        conn.execute(
-            "INSERT INTO llm_decisions (key, model, input_hash, output, usage, at) "
-            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET "
-            "output = excluded.output, usage = excluded.usage, at = excluded.at",
-            (key, chat.name, hashlib.sha256(text.encode()).hexdigest(),
-             out, json.dumps(usage), now),
-        )
+        llmcache.store(conn, key, chat.name, text, out, usage, valid=_valid_card, now=now)
         return out, usage
 
     for cand in candidates:
@@ -233,7 +240,7 @@ def write_stories(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
         "written": written, "failed": failed, "pending": pending,
         "llm_calls": calls, "llm_cache_hits": cache_hits,
         "llm_prompt_tokens": tokens["prompt"], "llm_completion_tokens": tokens["completion"],
-        "budget_exhausted": budget_exhausted,
+        "budget_exhausted": budget_exhausted, "throttled": throttled,
         "refused": refused, "quotes_unquoted": unquoted, "relanguaged": relanguaged,
         "model": chat.name, "served_models": sorted(served_models),
     }

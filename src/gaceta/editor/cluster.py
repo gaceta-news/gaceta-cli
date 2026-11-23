@@ -9,7 +9,6 @@ Params come from reader config [cluster] threshold / window_days (no paths in sr
 from __future__ import annotations
 
 import hashlib
-import json
 import sqlite3
 import time
 
@@ -17,7 +16,7 @@ import numpy as np
 
 from .. import budget as budget_mod
 from .. import privacy
-from ..editor import prompts
+from ..editor import llmcache, prompts
 from ..providers import embed as embedders
 from ..providers import llm as llm_providers
 
@@ -128,6 +127,7 @@ class Confirmer:
         self.cache_hits = 0
         self.tokens = {"prompt": 0, "completion": 0}
         self.budget_exhausted = False
+        self.throttled = False
         self.refused = 0
         self.served_models: set[str] = set()
 
@@ -140,13 +140,11 @@ class Confirmer:
         messages = prompts.confirm_messages(*items, allow_private=self.model.allow_private)
         text = prompts.messages_text(messages)
         key = hashlib.sha256((self.model.name + text).encode()).hexdigest()
-        row = self.conn.execute(
-            "SELECT output FROM llm_decisions WHERE key = ?", (key,)
-        ).fetchone()
-        if row is not None:
+        cached = llmcache.lookup(self.conn, key, valid=prompts.has_same)
+        if cached is not None:
             self.cache_hits += 1
-            return prompts.parse_same(row[0] or "")
-        if self.calls >= self.max_llm_calls or (
+            return prompts.parse_same(cached)
+        if self.throttled or self.calls >= self.max_llm_calls or (
                 self.budget is not None and self.budget.reached()):
             self.budget_exhausted = True
             return False
@@ -162,13 +160,11 @@ class Confirmer:
         self.tokens["completion"] += int(usage.get("completion_tokens") or 0)
         if usage.get("served_model"):
             self.served_models.add(str(usage["served_model"]))
-        self.conn.execute(
-            "INSERT INTO llm_decisions (key, model, input_hash, output, usage, at) "
-            "VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(key) DO UPDATE SET "
-            "output = excluded.output, usage = excluded.usage, at = excluded.at",
-            (key, self.model.name,
-             hashlib.sha256(text.encode()).hexdigest(), out, json.dumps(usage), int(time.time())),
-        )
+        if llmcache.transient(usage.get("refused")):
+            # quota/rate: not a "no". Nothing cached; the pair is asked again next run
+            self.throttled = self.budget_exhausted = True
+            return False
+        llmcache.store(self.conn, key, self.model.name, text, out, usage, valid=prompts.has_same)
         self.conn.commit()
         return prompts.parse_same(out)
 

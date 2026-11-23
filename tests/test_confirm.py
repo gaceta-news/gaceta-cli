@@ -349,3 +349,24 @@ def test_auth_error_still_raises(monkeypatch):
     with pytest.raises(urllib.error.HTTPError) as ei:
         chat.complete([{"role": "user", "content": "hi"}])
     assert not isinstance(ei.value, LLMRefused)
+
+
+def test_quota_error_is_not_a_no(env):
+    """ROADMAP 14: a 429 used to be cached as '' → parse_same False → a permanent
+    'not the same story'. Now nothing is cached and the pair is asked next run."""
+    from gaceta.providers.llm import LLMRefused
+    add_item(env, "i0", "A one", "alpha beta gamma", published=T0)
+    add_item(env, "i1", "B two", "other words", published=T0 + DAY)
+    chat = FakeChat()
+
+    def quota(messages, **kw):
+        raise LLMRefused(429, "Weekly/Monthly Limit Exhausted")
+
+    chat.complete = quota
+    conf = Confirmer(chat, env.conn, _desc_fn(env.conn, env.cfg["id"]), confirm_low=0.55)
+    assert partition(_items(uv(0), uv(52)), 0.70, 21, confirmer=conf) == [["i0"], ["i1"]]
+    assert conf.throttled and conf.budget_exhausted
+    assert env.conn.execute("SELECT COUNT(*) FROM llm_decisions").fetchone()[0] == 0
+    _, conf2 = _confirmer(env, rules={"B two": True})
+    assert partition(_items(uv(0), uv(52)), 0.70, 21, confirmer=conf2) == [["i0", "i1"]]
+    assert conf2.calls == 1

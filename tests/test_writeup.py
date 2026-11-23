@@ -329,3 +329,84 @@ def test_language_fix_respects_budget(env):
                               now=NOW, max_llm_calls=1)
     # no budget left for the fix: keep the (valid) card rather than nothing
     assert r["llm_calls"] == 1 and r["written"] == 1 and r["relanguaged"] == 0
+
+
+# ------------------------------------------------------------ ROADMAP 14: cache policy
+
+class Fake429(FakeWriteup):
+    """Every chain member spent: the provider raises a quota refusal."""
+
+    def complete(self, messages, **kw):
+        from gaceta.providers.llm import LLMRefused
+        self.prompts.append("x")
+        raise LLMRefused(429, '{"error":{"code":"1310","message":"Weekly/Monthly Limit Exhausted"}}')
+
+
+def test_quota_error_is_not_cached_and_stops_the_run(env):
+    build_story(env,
+                ("a1", "A one", "alpha beta gamma", "noted", "public", T0),
+                ("b1", "B one", "omega psi chi", "noted", "public", T0))
+    chat = Fake429("unused")
+    r = writeup.write_stories(env.conn, env.cfg["id"], env.cfg, chat=chat, now=NOW)
+    assert r["throttled"] and r["budget_exhausted"] and r["written"] == 0
+    assert len(chat.prompts) == 1  # stops at the first 429, never hammers
+    assert env.conn.execute("SELECT COUNT(*) FROM llm_decisions").fetchone()[0] == 0
+    r2 = writeup.write_stories(env.conn, env.cfg["id"], env.cfg, chat=FakeWriteup(GOOD), now=NOW)
+    assert r2["written"] == 2  # next run: both stories get their card
+
+
+def test_legacy_cached_quota_error_is_asked_again(env):
+    """Rows older versions stored for a 429 ('' + usage.refused=429) are not decisions."""
+    build_story(env, ("a1", "A one", "alpha beta gamma", "noted", "public", T0))
+    writeup.write_stories(env.conn, env.cfg["id"], env.cfg, chat=FakeWriteup(GOOD), now=NOW)
+    env.conn.execute("UPDATE llm_decisions SET output = '', usage = ?",
+                     (json.dumps({"refused": 429, "detail": "limit"}),))
+    env.conn.execute("DELETE FROM story_versions")
+    env.conn.commit()
+    r = writeup.write_stories(env.conn, env.cfg["id"], env.cfg, chat=FakeWriteup(GOOD), now=NOW)
+    assert r["llm_calls"] == 1 and r["written"] == 1
+
+
+def test_invalid_reply_is_retried_after_backoff_then_given_up(env):
+    from gaceta.editor import llmcache
+    build_story(env, ("a1", "A one", "alpha beta gamma", "noted", "public", T0))
+    bad = FakeWriteup("sounds like one story to me")
+    t = NOW
+    for attempt in range(1, llmcache.MAX_ATTEMPTS + 1):
+        r = writeup.write_stories(env.conn, env.cfg["id"], env.cfg, chat=bad, now=t)
+        assert r["llm_calls"] == 1 and r["failed"] == 1, attempt
+        usage = json.loads(env.conn.execute("SELECT usage FROM llm_decisions").fetchone()[0])
+        assert usage["attempts"] == attempt
+        # inside the backoff window: served from the cache, no call
+        r = writeup.write_stories(env.conn, env.cfg["id"], env.cfg, chat=bad, now=t + 60)
+        assert r["llm_calls"] == 0
+        t += llmcache.RETRY_AFTER * 2 ** (attempt - 1) + 1
+    r = writeup.write_stories(env.conn, env.cfg["id"], env.cfg, chat=bad, now=t + DAY)
+    assert r["llm_calls"] == 0 and r["failed"] == 1  # MAX_ATTEMPTS reached: stays as is
+
+
+def test_retry_that_succeeds_writes_the_card(env):
+    from gaceta.editor import llmcache
+    build_story(env, ("a1", "A one", "alpha beta gamma", "noted", "public", T0))
+    writeup.write_stories(env.conn, env.cfg["id"], env.cfg, chat=FakeWriteup("nope"), now=NOW)
+    r = writeup.write_stories(env.conn, env.cfg["id"], env.cfg, chat=FakeWriteup(GOOD),
+                              now=NOW + llmcache.RETRY_AFTER + 1)
+    assert r["written"] == 1
+    usage = json.loads(env.conn.execute("SELECT usage FROM llm_decisions").fetchone()[0])
+    assert "attempts" not in usage
+
+
+def test_parse_writeup_repairs_inner_quotes_and_cutoffs():
+    from gaceta.editor import prompts
+    inner = ('{"title": "Solo saludos", "summary": "Notas con saludos ("Gm", "thank you mate") '
+             'y nada más.", "why_it_matters": null, "confidence": 0.15}')
+    card = prompts.parse_writeup(inner)
+    assert card and card["summary"].startswith('Notas con saludos ("Gm", "thank you mate")')
+    cut_after_field = ('{"title": "T", "summary": "S uno.", "confidence": 0.4, '
+                       '"why_it_matters": "Esto se cort')
+    card = prompts.parse_writeup(cut_after_field)
+    assert card and card["why_it_matters"] is None and card["confidence"] == 0.4
+    cut_before_conf = '{"title": "T", "summary": "S uno.", "why_it_matters": "W", "confidence": 0'
+    assert prompts.parse_writeup(cut_before_conf)["confidence"] == 0.0
+    assert prompts.parse_writeup('{"title": "T", "summary": "S se cor') is None  # no confidence
+    assert prompts.parse_writeup("no json at all") is None

@@ -411,7 +411,7 @@ def cmd_write(args) -> int:
         f"write reader={args.reader} days={result['days']}: "
         f"{result['window_stories']} stories to write, {result['written']} written, "
         f"{result['failed']} failed (invalid JSON), {result['pending']} pending"
-        f"{' (budget exhausted)' if result['budget_exhausted'] else ''}"
+        f"{' (providers throttling: quota/rate, retried next run)' if result.get('throttled') else (' (budget exhausted)' if result['budget_exhausted'] else '')}"
         f"{f', {n} rewritten in the reader language' if (n := result.get('relanguaged')) else ''}; "
         f"calls={result['llm_calls']} cache={result['llm_cache_hits']} "
         f"tokens={result['llm_prompt_tokens']}+{result['llm_completion_tokens']}; "
