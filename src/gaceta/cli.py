@@ -678,10 +678,13 @@ def cmd_feedback(args) -> int:
 
 def cmd_sources(args) -> int:
     """`gaceta sources pending`: JSON of decisions not yet exported; the
-    reader's agent applies them upstream (gaceta never edits a collector)."""
+    reader's agent applies them upstream (gaceta never edits a collector).
+    `gaceta sources probe`: check what this window's cited sites are."""
     import json
     import time
 
+    if args.action == "probe":
+        return _sources_probe(args)
     conn = db.connect(_db_path())
     db.init(conn)
     try:
@@ -707,6 +710,39 @@ def cmd_sources(args) -> int:
                 (int(time.time()), args.reader),
             )
             conn.commit()
+        return 0
+    finally:
+        conn.close()
+
+
+def _sources_probe(args) -> int:
+    """Probe the top cited sites of the reader's edition window (network; run
+    before `gaceta edition`, which then shows only sites with a live feed)."""
+    import time
+
+    from . import discovery
+    from .edition.build import WINDOW_DAYS
+    from .sources import probe
+
+    conn = db.connect(_db_path())
+    db.init(conn)
+    try:
+        if conn.execute("SELECT 1 FROM readers WHERE id = ?", (args.reader,)).fetchone() is None:
+            print(f"unknown reader '{args.reader}'", file=sys.stderr)
+            return 2
+        since = int(time.time()) - WINDOW_DAYS * 86400
+        cands = discovery.site_candidates(conn, args.reader, since, max_privacy="private")
+        top = [c["site"] for c in cands[:args.top]]
+        todo = top if args.force else probe.due(conn, top)
+        ok = 0
+        for site in todo[:args.max]:
+            row = probe.probe_site(site)
+            probe.store(conn, row)
+            conn.commit()
+            ok += row["ok"]
+            print(f"  {site}: {'ok ' + str(row['feed_url']) if row['ok'] else row['note']}")
+        print(f"sources probe reader={args.reader}: {len(cands)} candidates, "
+              f"{len(top)} considered, {min(len(todo), args.max)} probed, {ok} publishing")
         return 0
     finally:
         conn.close()
@@ -1167,6 +1203,12 @@ def main(argv=None) -> int:
     spend.add_argument("--reader", required=True)
     spend.add_argument("--mark-exported", action="store_true",
                        help="stamp the printed rows as exported (exported_at)")
+    sprobe = srcsub.add_parser("probe", help="check cited sites for a live feed + description "
+                                             "(network; run before `edition`)")
+    sprobe.add_argument("--reader", required=True)
+    sprobe.add_argument("--top", type=int, default=12, help="best-cited candidates considered (default 12)")
+    sprobe.add_argument("--max", type=int, default=8, help="at most this many fetched per run (default 8)")
+    sprobe.add_argument("--force", action="store_true", help="re-probe even if the last check is fresh")
     psrc.set_defaults(func=cmd_sources)
 
     pev = sub.add_parser("eval", help="run an eval")

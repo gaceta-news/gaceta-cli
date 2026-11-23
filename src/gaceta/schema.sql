@@ -226,3 +226,20 @@ CREATE TABLE IF NOT EXISTS llm_usage (
   calls INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (reader_id, day)
 );
+
+-- v13 (additive): what a cited site is (roadmap 6b v2). `gaceta sources probe`
+-- fetches the home page once: a live feed (ok=1) is required before the site
+-- shows in «Fuentes nuevas»; title/description/headlines describe it there.
+-- Keyed by site, shared across readers (it is public web metadata).
+CREATE TABLE IF NOT EXISTS source_probes (
+  site TEXT PRIMARY KEY,
+  checked_at INTEGER NOT NULL,
+  ok INTEGER NOT NULL DEFAULT 0,        -- 1 = live RSS/Atom feed with recent entries
+  feed_url TEXT,
+  title TEXT,                           -- og:site_name / <title>
+  description TEXT,                     -- og:description / meta description, <=160 chars
+  lang TEXT,
+  newest INTEGER,                       -- newest feed entry (unix)
+  headlines TEXT,                       -- JSON list of up to 3 latest entry titles
+  note TEXT                             -- why not ok ('no feed found', 'feed stale: …')
+);

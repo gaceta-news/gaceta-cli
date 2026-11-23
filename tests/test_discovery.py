@@ -86,7 +86,19 @@ def _seed(env):
     _story(env, "stU", ["t3"], "A quiet pump")
     for i in range(3):
         _story(env, f"stC{i}", [f"c{i}", f"sa{i}", f"os{i}"], f"Cited round {i}")
+    _probed(env, CITED, "other-gazette.substack.com")
     env.conn.commit()
+
+
+def _probed(env, *sites, ok=1):
+    """source_probes rows as `gaceta sources probe` leaves them (6b v2 gate)."""
+    for site in sites:
+        env.conn.execute(
+            "INSERT OR REPLACE INTO source_probes (site, checked_at, ok, feed_url, title, "
+            "description, headlines) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (site, int(time.time()), ok, f"https://{site}/feed" if ok else None,
+             f"{site.split('.')[0].title()} | Tagline here", f"About {site}.",
+             json.dumps([f"Latest at {site}", "Second headline", "Third"])))
 
 
 def _kv(env, rows):
@@ -166,7 +178,7 @@ def test_suggestions_domains_platforms_substack(env):
     out = {s["key"]: s for s in suggestions(env.conn, READER, SINCE, adapters=[FakeAdapter()])}
     assert f"nostr:{HEX}" in out
     cited = out.get(f"host:{CITED}")
-    assert cited and cited["reason"] == "Citada en 3 historias"
+    assert cited and cited["reason"].startswith("Citada en 3 historias · por ")
     assert cited["kind"] == "site" and cited["url"] == f"https://{CITED}"
     assert f"host:other-gazette.substack.com" in out  # substack, NEW author
     # excluded: platforms, host of an existing source, same-author substack
@@ -440,7 +452,7 @@ def test_suggestions_ignore_media_apps_and_lone_voices(env):
     for i in range(4):  # a real site, but only one person keeps posting it
         _cite(env, f"solo{i}", "Lone Poster", f"https://satire.example/news/a-funny-story-{i}", f"stS{i}")
     env.conn.commit()
-    keys = {s["key"] for s in suggestions(env.conn, READER, SINCE)}
+    keys = {s["key"] for s in suggestions(env.conn, READER, SINCE, require_probe=False)}
     assert f"host:{CITED}" in keys
     for absent in ("host:blobs.example", "host:pics.example", "host:chain.example",
                    "host:wallet-app.example", "host:tools.example", "host:satire.example"):
@@ -454,7 +466,7 @@ def test_suggestions_fold_subdomain_into_existing_site(env):
     for i, who in enumerate(VOICES):
         _cite(env, f"sp{i}", who, f"https://assets.space.example/2026/11/rocket-launch-{i}", f"stP{i}")
     env.conn.commit()
-    keys = {s["key"] for s in suggestions(env.conn, READER, SINCE)}
+    keys = {s["key"] for s in suggestions(env.conn, READER, SINCE, require_probe=False)}
     assert "host:assets.space.example" not in keys and "host:space.example" not in keys
 
 
@@ -474,3 +486,71 @@ def test_trials_are_per_reader(env):
     env.conn.execute("INSERT INTO readers (id, name, langs, created_at) VALUES ('other', 'O', 'es', 0)")
     env.conn.commit()
     assert trial_sources(env.conn, "other", SINCE) == []  # shared collector, none in her paper
+
+
+# ------------------------------------------------------------ 6b v2: probe gate + description
+
+def test_unprobed_or_feedless_sites_are_not_shown(env):
+    _seed(env)
+    env.conn.execute("DELETE FROM source_probes WHERE site = ?", (CITED,))
+    _probed(env, "other-gazette.substack.com", ok=0)
+    env.conn.commit()
+    keys = {s["key"] for s in suggestions(env.conn, READER, SINCE)}
+    assert f"host:{CITED}" not in keys and "host:other-gazette.substack.com" not in keys
+    keys = {s["key"] for s in suggestions(env.conn, READER, SINCE, require_probe=False)}
+    assert f"host:{CITED}" in keys  # the signal is there; only the gate holds it
+
+
+def test_probed_site_carries_name_about_headlines_and_who(env):
+    _seed(env)
+    out = {s["key"]: s for s in suggestions(env.conn, READER, SINCE)}
+    e = out[f"host:{CITED}"]
+    assert e["name"] == CITED.split(".")[0].title()       # tagline trimmed
+    assert e["about"] == f"About {CITED}." and e["feed_url"] == f"https://{CITED}/feed"
+    assert e["headlines"] == [f"Latest at {CITED}", "Second headline"]
+    assert all(v in e["reason"] for v in VOICES[:2])
+    pub = {s["key"]: s for s in suggestions(env.conn, READER, SINCE, max_privacy="public")}
+    assert " · " not in pub[f"host:{CITED}"]["reason"]   # who-cites is private detail
+
+
+def test_render_shows_about_and_lately(env):
+    ed = _build_with_discovery(env)
+    doc = render_html.render(ed, "private")
+    assert f"About {CITED}." in doc and "Últimas:" in doc and f"Latest at {CITED}" in doc
+
+
+def test_probe_site_finds_feed_and_description():
+    from gaceta.sources import probe
+    home = (b'<html lang="es-CO"><head><title>Rio Notes - news</title>'
+            b'<meta property="og:description" content="Notes on rivers &amp; water.">'
+            b'<link rel="alternate" type="application/rss+xml" href="/my.xml"></head></html>')
+    now = time.time()
+    pub = time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime(now - 86400))
+    feed = (f'<rss><channel><item><title>Flood map update</title><link>https://rio.example/a</link>'
+            f'<pubDate>{pub}</pubDate></item></channel></rss>').encode()
+    pages = {"https://rio.example/": home, "https://rio.example/my.xml": feed}
+
+    def fetch(url, max_bytes):
+        if url not in pages:
+            raise OSError("404")
+        return pages[url]
+
+    row = probe.probe_site("rio.example", fetch=fetch, now=now)
+    assert row["ok"] == 1 and row["feed_url"] == "https://rio.example/my.xml"
+    assert row["description"] == "Notes on rivers & water." and row["lang"] == "es"
+    assert json.loads(row["headlines"]) == ["Flood map update"]
+    del pages["https://rio.example/my.xml"]
+    row = probe.probe_site("rio.example", fetch=fetch, now=now)
+    assert row["ok"] == 0 and row["note"] == "no feed found" and row["title"] == "Rio Notes - news"
+    old = time.strftime("%a, %d %b %Y %H:%M:%S +0000", time.gmtime(now - 400 * 86400))
+    pages["https://rio.example/feed"] = feed.replace(pub.encode(), old.encode())
+    row = probe.probe_site("rio.example", fetch=fetch, now=now)
+    assert row["ok"] == 0 and row["note"].startswith("feed stale")
+
+
+def test_probe_due_respects_ttls(env):
+    from gaceta.sources import probe
+    _seed(env)
+    now = time.time()
+    assert probe.due(env.conn, [CITED, "new.example"], now=now) == ["new.example"]
+    assert probe.due(env.conn, [CITED], now=now + probe.OK_TTL + 1) == [CITED]
