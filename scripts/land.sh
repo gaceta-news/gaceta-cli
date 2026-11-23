@@ -1,17 +1,18 @@
 #!/usr/bin/env bash
 # gaceta land: put a green PR on main WITHOUT GitHub's merge button.
 #
-# Why: any GitHub-side merge (merge, squash or rebase) stamps the merging
-# account as author or committer. On this public repo that account must never
-# appear, so the admin "lands" instead: this script pushes the PR's own commits
-# (neutral `gaceta` identity, UTC) to main as a fast-forward, and GitHub marks
-# the PR merged by itself. The admin can bypass the PR/check ruleset only for
+# Why: any GitHub-side merge (merge, squash or rebase) re-stamps the commit with
+# the merging account's email and local UTC offset. Maintainers keep a noreply
+# email and UTC dates in public history, so the admin "lands" instead: this
+# script pushes the PR's own commits to main as a fast-forward, and GitHub
+# marks the PR merged by itself. The admin can bypass the PR/check ruleset only for
 # this; force-push and branch deletion stay blocked for everyone.
 #
 # Refuses unless:
 #   1. the PR is open, targets main, and comes from this repo;
 #   2. its head is a fast-forward of origin/main (rebase the branch first);
-#   3. every new commit is authored AND committed by the gaceta identity, +0000;
+#   3. every new commit is authored AND committed by this clone's configured
+#      identity (git config user.name/email), with +0000 dates;
 #   4. the required checks passed on the exact head commit.
 # The privacy pre-push hook runs on the push as usual.
 #
@@ -20,7 +21,7 @@ set -euo pipefail
 
 PR="${1:?usage: scripts/land.sh <pr-number>}"
 REPO="gaceta-news/gaceta-cli"
-IDENT="gaceta <gaceta@users.noreply.github.com>"
+IDENT="$(git config user.name) <$(git config user.email)>"   # the maintainer identity configured in this clone
 NEED=("test (3.12)" "test (3.13)")
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 die() { echo "land: $*" >&2; exit 1; }
