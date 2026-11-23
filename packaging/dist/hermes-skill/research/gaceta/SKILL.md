@@ -1,7 +1,7 @@
 ---
 name: gaceta
 description: Find what changed in stories from the reader's feeds.
-version: 0.3.0b1
+version: 0.3.0b2
 author: Gaceta News (gaceta-news)
 license: AGPL-3.0-only
 platforms: [linux, macos, windows]
@@ -22,7 +22,7 @@ session stated.
 
 This skill does **not** install, configure, fetch, schedule or build a paper.
 The owner runs the gaceta engine on their own machine (https://github.com/gaceta-news/gaceta-cli, candidate
-0.3.0b1); you only read what they hand you — or the bundled demo below.
+0.3.0b2); you only read what they hand you — or the bundled demo below.
 It was previously documented as `gaceta-public-reader`.
 
 ## When to use / don't use for
@@ -44,8 +44,8 @@ command instead of `gaceta agent`.
 
 ## Prerequisites
 
-- `gaceta` on PATH: `gaceta --version` must print `0.3.0b1`
-  (pinned install: `uv tool install git+https://github.com/gaceta-news/gaceta-cli@v0.3.0b1`).
+- `gaceta` on PATH: `gaceta --version` must print `0.3.0b2`
+  (pinned install: `uv tool install git+https://github.com/gaceta-news/gaceta-cli@v0.3.0b2`).
 - An export: the conventional path `$GACETA_DATA/agent-exports/<reader>/current.json`,
   an explicit `--path` your session was given, or no export at all → demo.
 
@@ -81,7 +81,7 @@ Boundaries and costs: see the gaceta landing page in the repo
 
 ---
 
-# The read-only runtime (unchanged from docs/agent/SKILL.md, candidate 0.3.0b1)
+# The read-only runtime (unchanged from docs/agent/SKILL.md, candidate 0.3.0b2)
 
 # gaceta public reader (read-only agent lookup)
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the gaceta agent demo export into a working directory you own.
 
-Bundled with the gaceta skill (candidate 0.3.0b1). Stdlib only, no
+Bundled with the gaceta skill (candidate 0.3.0b2). Stdlib only, no
 network, no model calls. Writes exactly one file, WORKDIR/export.json — the
 synthetic, public-only demo export (invented stories, *.example hosts, no
 real data). The edition clock is read at run time, so the export is never
