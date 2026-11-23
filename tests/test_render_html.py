@@ -51,7 +51,7 @@ def test_renders_full_edition_at_private() -> None:
 
     assert "En desarrollo" in out
     assert "Corregido" in out
-    assert "Por qué te importa" not in out
+    assert "Por qué te importa" in out  # quiet rubric above the stake paragraph
     assert 'class="summary stake"' in out
     assert 'class="why"' not in out and "why-label" not in out
     assert "Antes dijimos…" in out

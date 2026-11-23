@@ -59,7 +59,6 @@
     "folio.no": "N° {code}",
     "folio.window": "24 h jusqu'à {time}",
     "dateline.for": "Pour {name}",
-    "dateline.story_count": "{n} histoires",
     "dateline.stories": "{n} sur {total} histoires",
     "dateline.items": "{n} éléments",
     "dateline.voices": "{n} voix",

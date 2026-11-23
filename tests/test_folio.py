@@ -150,9 +150,10 @@ def test_render_shows_folio_dateline_rows_and_instrument_when_private(env):
     match = re.search(r'<p class="dateline-row">(.*?)</p>', doc)
     assert match
     row = match.group(1)
-    assert f'{folio["stories_total"]} historias' in row
-    assert re.findall(r"\d+", row) == [str(folio["stories_total"])]
-    assert "ítems" not in row and "voces" not in row and " de " not in row
+    assert f'{folio["portada"]} de {folio["stories_total"]} historias' in row
+    assert re.findall(r"\d+", row) == [str(folio["portada"]), str(folio["stories_total"])]
+    assert "ítems" not in row and "voces" not in row
+    assert " · " not in row
     assert "Para Test Reader" in doc
     # folio row sits above the masthead, dateline row below it
     assert (doc.index('class="folio-row"') < doc.index("<h1>La Gaceta</h1>")
