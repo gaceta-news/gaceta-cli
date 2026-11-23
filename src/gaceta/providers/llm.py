@@ -221,9 +221,92 @@ class FakeChat:
         return False
 
 
-def from_config(cfg: dict) -> OpenAICompatChat | FakeChat:
+class ChainChat:
+    """Fallback chain of ChatModel members, primary first (DECISIONS #9).
+
+    A member is down for the rest of the process after HTTP 429 (its own
+    retries spent), 5xx after retries, 401/403, or a connection error
+    (URLError/timeout): the next member serves instead, and later calls
+    start after every member already down (sticky — never hammer a
+    quota-limited provider). LLMRefused (other 4xx) is per-item, not
+    failover: it re-raises. With every member down the last error
+    re-raises; callers already treat that as "the run continues".
+
+    name and allow_private are the PRIMARY's, so llm_decisions cache keys
+    are shared across members and a fallback can never widen the model
+    boundary. usage gains "via": "<member index>:<model>"; served_model is
+    whatever the serving member's API actually returned.
+    """
+
+    def __init__(self, members):
+        if not members:
+            raise ValueError("chat chain needs at least one member")
+        self.members = list(members)
+        self.name = self.members[0].name
+        self.allow_private = self.members[0].allow_private
+        self._down: set[int] = set()
+        self._last_error: Exception | None = None
+
+    @staticmethod
+    def _marks_down(e: BaseException) -> bool:
+        """True when this error means the member is out for this process:
+        quota (429, after the member's own retries), auth (401/403), a 5xx
+        after retries, or an unreachable route. A per-item refusal never is."""
+        if isinstance(e, LLMRefused):
+            return e.code == 429  # OpenAICompatChat raises this once 429 retries are spent
+        if isinstance(e, urllib.error.HTTPError):
+            return e.code == 429 or e.code in (401, 403) or 500 <= e.code < 600
+        return isinstance(e, (urllib.error.URLError, TimeoutError))
+
+    def complete(
+        self, messages: list[dict], *, max_tokens: int = 300, temperature: float = 0.0
+    ) -> tuple[str, dict]:
+        last = self._last_error or RuntimeError(
+            f"chat chain {self.name!r}: all members are down")
+        for i, m in enumerate(self.members):
+            if i in self._down:
+                continue
+            try:
+                text, usage = m.complete(
+                    messages, max_tokens=max_tokens, temperature=temperature)
+            except Exception as e:  # noqa: BLE001 — classified below
+                if not self._marks_down(e):
+                    raise
+                self._down.add(i)
+                self._last_error = last = e
+                continue
+            u = dict(usage or {})
+            u["via"] = f"{i}:{getattr(m, 'model', m.name)}"
+            return text, u
+        raise last
+
+    def preflight(self) -> None:
+        """One tiny real request (max_tokens 1) to the first member before
+        the run's real calls: a down-class failure (a fresh 429, auth,
+        unreachable) marks it down, so the whole run starts at the next
+        member. Never raises — a preflight is a hint; the first real call
+        reports real errors."""
+        if not self.members or 0 in self._down:
+            return
+        try:
+            self.members[0].complete(
+                [{"role": "user", "content": "1"}], max_tokens=1, temperature=0.0)
+        except Exception as e:  # noqa: BLE001 — see above
+            if self._marks_down(e):
+                self._down.add(0)
+                self._last_error = e
+
+
+def from_config(cfg: dict) -> OpenAICompatChat | FakeChat | ChainChat:
     """Build the chat model from reader config [llm.editor]. No silent default:
-    'fake' only when explicitly configured (same rule as embed.from_config)."""
+    'fake' only when explicitly configured (same rule as embed.from_config).
+
+    [[llm.editor.fallbacks]] members chain after the primary (ChainChat):
+    each needs base_url (api_key_env defaults to the primary's, model to the
+    primary's model); extra_body is NOT inherited unless the fallback sets
+    one or asks with inherit_extra_body = true. allow_private is the
+    primary's — a fallback cannot widen the model boundary.
+    """
     cfg = cfg or {}
     provider = cfg.get("provider", "openai")
     if provider == "openai":
@@ -233,15 +316,44 @@ def from_config(cfg: dict) -> OpenAICompatChat | FakeChat:
         extra = cfg.get("extra_body")
         if extra is not None and not isinstance(extra, dict):
             raise ValueError("[llm.editor] extra_body must be a table (dict)")
-        return OpenAICompatChat(
+        fallbacks = cfg.get("fallbacks") or []
+        if fallbacks and not isinstance(fallbacks, list):
+            raise ValueError("[llm.editor] fallbacks must be an array of tables ([[...]])")
+        timeout = int(cfg.get("timeout", 60))  # raise for slow local models on CPU
+        primary = OpenAICompatChat(
             base_url=cfg["base_url"],
             api_key_env=cfg.get("api_key_env", "OPENAI_API_KEY"),
             model=cfg["model"],
             allow_private=cfg.get("allow_private", False),
             extra_body=extra,
-            timeout=int(cfg.get("timeout", 60)),  # raise for slow local models on CPU
+            timeout=timeout,
             headers=cfg.get("headers"),
         )
+        if not fallbacks:
+            return primary
+        members = [primary]
+        for n, f in enumerate(fallbacks, 1):
+            if not isinstance(f, dict) or not f.get("base_url"):
+                raise ValueError(f"[[llm.editor.fallbacks]] #{n} is missing 'base_url'")
+            if f.get("allow_private") and not primary.allow_private:
+                raise ValueError(
+                    "[[llm.editor.fallbacks]] allow_private cannot be true while "
+                    "[llm.editor] allow_private is false (fallbacks never widen the boundary)")
+            f_extra = f.get("extra_body")
+            if f.get("inherit_extra_body"):
+                f_extra = {**(extra or {}), **(f_extra or {})}
+            if f_extra is not None and not isinstance(f_extra, dict):
+                raise ValueError(f"[[llm.editor.fallbacks]] #{n} extra_body must be a table (dict)")
+            members.append(OpenAICompatChat(
+                base_url=f["base_url"],
+                api_key_env=f.get("api_key_env", primary.api_key_env),
+                model=f.get("model") or primary.model,
+                allow_private=primary.allow_private,
+                extra_body=f_extra or None,
+                timeout=timeout,
+                headers=f.get("headers"),
+            ))
+        return ChainChat(members)
     if provider == "fake":
         return FakeChat(allow_private=cfg.get("allow_private", True), cards=True)
     raise ValueError(f"unknown llm provider {provider!r} (expected 'openai' or 'fake')")

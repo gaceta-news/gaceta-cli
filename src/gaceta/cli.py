@@ -348,15 +348,28 @@ def cmd_write(args) -> int:
     conn = db.connect(_db_path())
     try:
         db.init(conn)
+        # [llm.editor] preflight = true: spend one 1-token request before the
+        # run's real calls, so a quota-limited primary is skipped from the
+        # start. The same chat object serves write-ups and change notes, so
+        # the chain's down-state is shared across both.
+        chat = None
+        llm_cfg = (cfg.get("llm") or {}).get("editor") or {}
+        if bool(llm_cfg.get("preflight", False)):
+            from .providers import llm as llm_providers
+
+            chat = llm_providers.from_config(llm_cfg)
+            preflight = getattr(chat, "preflight", None)
+            if callable(preflight):
+                preflight()
         result = write_stories(
             conn, args.reader, cfg,
-            days=args.days, max_llm_calls=args.max_llm_calls,
+            days=args.days, max_llm_calls=args.max_llm_calls, chat=chat,
         )
         # what each rewrite added over the previous card ('Desde que la viste');
         # a failure here never costs the write-ups already committed
         try:
             ch = note_changes(conn, args.reader, cfg, days=args.days,
-                              max_llm_calls=args.max_change_calls)
+                              max_llm_calls=args.max_change_calls, chat=chat)
         except Exception as e:  # noqa: BLE001 — network/provider; retried next run
             ch = {"error": f"{type(e).__name__}: {e}"}
     except ValueError as e:
