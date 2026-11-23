@@ -6,6 +6,8 @@ name: release-checks
 # cleanroom work and are deliberately NOT part of this job.
 on:
   workflow_dispatch:
+  push:
+    tags: ["v*"]   # every tag scripts/release.sh pushes gets the same evidence run
 
 jobs:
   candidate:
