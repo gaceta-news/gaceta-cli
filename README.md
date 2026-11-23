@@ -256,6 +256,10 @@ where a health check can read it without parsing logs:
 - `gaceta status [--reader <id>] [--json]` prints that file (plus `age_s` of `last_ok`),
   or every reader's file. Read-only: no database is opened, so a cron or an owner's
   agent can poll it freely.
+- `gaceta edition --only-if-new` builds nothing (exit 0, `{"skipped": "nothing new"}` in
+  the status file, `built_at` unchanged) when no item was ingested and no story changed
+  since the previous edition's build — a scheduled run on a quiet day costs one query,
+  not a build. Checked before `--force`.
 
 ## Development
 

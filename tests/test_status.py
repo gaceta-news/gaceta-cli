@@ -23,6 +23,12 @@ from test_edition_build import _edition_date
 
 D = 86400
 
+
+def _date(days: int) -> str:
+    from datetime import timezone
+    return datetime.fromtimestamp(T0 + days * DAY, tz=timezone.utc).date().isoformat()
+
+
 SCHEMA = {"reader", "built_at", "last_ok", "last_fail", "fail_reason",
           "edition_id", "new_items", "llm_calls", "consecutive_failures"}
 
@@ -195,4 +201,75 @@ def test_status_cli_empty_data_dir(tmp_path, monkeypatch, capsys):
     assert "no reader status" in capsys.readouterr().out
     assert cli_main(["status", "--json"]) == 0
     assert json.loads(capsys.readouterr().out) == {}
+
+
+# ------------------------------------------------------------ --only-if-new
+
+def _run_edition(env, day, *extra):
+    return cli_main(["edition", "--reader", env.cfg["id"], "--date", day,
+                     "--max-privacy", "private", *extra])
+
+
+def test_only_if_new_skips_and_records(env, monkeypatch, capsys):
+    reader = _ready(env, monkeypatch)
+    day2 = _date(5)
+
+    # no previous edition: the flag never blocks a first build
+    assert _run_edition(env, _edition_date(), "--only-if-new") == 0
+    first = status.load(env.data_dir, reader)
+    assert "skipped" not in first
+
+    # nothing ingested, no story touched → no new edition, exit 0
+    assert _run_edition(env, day2, "--only-if-new") == 0
+    assert "nothing new" in capsys.readouterr().out
+    assert not snapshot_path(env.data_dir, reader, day2, "private").exists()
+    doc = status.load(env.data_dir, reader)
+    assert doc["skipped"] == "nothing new"
+    assert doc["built_at"] == first["built_at"]      # built_at unchanged
+    assert doc["last_ok"] == first["last_ok"]
+    assert doc["new_items"] == 0 and doc["llm_calls"] == 0
+    assert doc["consecutive_failures"] == 0
+
+    # without the flag: today's behavior — it builds even with nothing new
+    assert _run_edition(env, day2) == 0
+    assert snapshot_path(env.data_dir, reader, day2, "private").exists()
+    doc = status.load(env.data_dir, reader)
+    assert "skipped" not in doc and doc["new_items"] == 0
+    assert doc["edition_id"] == f"{day2}-private"
+
+
+def test_only_if_new_builds_when_things_changed(env, monkeypatch):
+    reader = _ready(env, monkeypatch)
+    day2, day3 = _date(5), _date(4)
+
+    assert _run_edition(env, _edition_date(), "--only-if-new") == 0
+
+    # a newly ingested item is something new (ingested_at is set once, at insert:
+    # here, right after day1's build)
+    first = status.load(env.data_dir, reader)
+    d1_ts = int(datetime.fromisoformat(first["last_ok"]).timestamp())
+    add_item(env, "a9", "A nine", "alpha beta gamma", "noted", "public", T0 + 2 * DAY)
+    env.conn.execute("UPDATE items SET ingested_at = ? WHERE id = 'a9'", (d1_ts + 1,))
+    env.conn.commit()
+    time.sleep(1.1)  # day2's build must land after the item's ingest stamp
+    assert _run_edition(env, day2, "--only-if-new") == 0
+    assert snapshot_path(env.data_dir, reader, day2, "private").exists()
+    doc = status.load(env.data_dir, reader)
+    assert doc["new_items"] == 1 and "skipped" not in doc
+
+    # …and back to quiet: day2's build already saw that item; the next run skips
+    assert _run_edition(env, day3, "--only-if-new") == 0
+    assert not snapshot_path(env.data_dir, reader, day3, "private").exists()
+    assert status.load(env.data_dir, reader)["skipped"] == "nothing new"
+
+    # no new item, but a story changed (a member joined or a card was
+    # rewritten — both stamp stories.updated_at): also something new
+    env.conn.execute(
+        "UPDATE stories SET updated_at = ? WHERE reader_id = ?",
+        (int(time.time()) + 120, reader))
+    env.conn.commit()
+    assert _run_edition(env, day3, "--only-if-new") == 0
+    assert snapshot_path(env.data_dir, reader, day3, "private").exists()
+    doc = status.load(env.data_dir, reader)
+    assert "skipped" not in doc and doc["new_items"] == 0
 

@@ -421,9 +421,16 @@ def cmd_edition(args) -> int:
     try:
         db.init(conn)
         # the build's input delta: what changed since the reader's previous
-        # edition (drives new_items in the status file)
+        # edition (drives new_items in the status file, and the --only-if-new
+        # gate below, checked before anything builds)
         prev = edition_build.previous_built_ts(conn, args.reader)
         new_items = edition_build.new_items_since(conn, args.reader, prev)
+        if (args.only_if_new and prev is not None and new_items == 0
+                and edition_build.stories_changed_since(conn, args.reader, prev) == 0):
+            doc = status.record_skip(data, args.reader, new_items=0)
+            print(f"edition reader={args.reader}: nothing new since the last build "
+                  f"({doc.get('built_at') or 'never'}) — no new edition")
+            return 0
         edition = build_edition(
             conn, args.reader, cfg, date_str=args.date,
             max_privacy=args.max_privacy, force=args.force,
@@ -1034,6 +1041,9 @@ def main(argv=None) -> int:
     ped.add_argument("--date", default=None, help="edition date YYYY-MM-DD (default today)")
     ped.add_argument("--max-privacy", default="private", choices=("public", "household", "private"))
     ped.add_argument("--force", action="store_true", help="overwrite an existing snapshot")
+    ped.add_argument("--only-if-new", action="store_true",
+                    help="skip the build (exit 0) when nothing was ingested and no story "
+                         "changed since the previous edition's build; checked before --force")
     ped.set_defaults(func=cmd_edition)
 
     pst = sub.add_parser("status", help="read-only: when each reader's edition was last built")
