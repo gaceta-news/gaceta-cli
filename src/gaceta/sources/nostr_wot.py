@@ -327,6 +327,8 @@ class NostrWotAdapter:
             return None  # not a usable event id; never invent one
         name = profiles.get(pk) or short_npub(pk)
         content = str(event.get("content") or "")
+        if not content.strip():
+            return None  # empty note: nothing to read, and stories need a title
         title = None
         if int(event.get("kind") or 0) == KIND_LONGFORM:
             title = next((str(t[1]) for t in event.get("tags") or []

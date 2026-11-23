@@ -161,6 +161,16 @@ def test_longform_title_tag_and_hex_free_names(env):
     assert row["author"].startswith("npub1") and "…" in row["author"]
 
 
+def test_empty_note_is_skipped(env):
+    """An empty note has nothing to read and no title; it must never reach clustering."""
+    blank = ev("9d" * 32, ALICE, "   \n ", created_at=NOW - 60)
+    a = adapter(script=ready_script([blank], profiles=[]))
+    cfg = dict(env.cfg, sources=dict(env.cfg.get("sources", {}), nostr_wot=wot_cfg()))
+    ingest.ingest(env.conn, a, cfg)
+    assert env.conn.execute("SELECT COUNT(*) FROM items WHERE id = ?",
+                            (f"nostr:{'9d' * 32}",)).fetchone()[0] == 0
+
+
 def test_own_posts_excluded():
     mine = ev("8c" * 32, READER, "my own post ranks high through my own lens")
     theirs = ev("9d" * 32, ALICE, "someone else's note")
