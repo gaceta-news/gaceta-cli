@@ -119,6 +119,27 @@ def test_invalid_json_keeps_story_and_counts_failure(env):
     assert r2["llm_calls"] == 0 and r2["failed"] == 1
 
 
+def test_invalid_json_reply_is_cached_not_repaid(env):
+    """Step 0: an invalid-JSON write-up reply IS cached in llm_decisions — the
+    story is still a candidate next run, but the cached reply is re-read, so
+    the model is never re-asked (and never re-paid) for it."""
+    build_story(env, ("a1", "A one", "alpha beta gamma", "noted", "public", T0))
+    chat = FakeWriteup("sounds like one story to me")
+    r1 = writeup.write_stories(env.conn, env.cfg["id"], env.cfg, chat=chat, now=NOW)
+    assert r1["failed"] == 1 and r1["llm_calls"] == 1
+    assert env.conn.execute("SELECT COUNT(*) FROM llm_decisions").fetchone()[0] == 1
+    assert env.conn.execute("SELECT output FROM llm_decisions").fetchone()[0] == \
+        "sounds like one story to me"
+
+    def never(messages, **kw):
+        raise AssertionError("invalid-JSON replies are cached; no second call expected")
+
+    chat2 = FakeWriteup("unused")  # same default name → the same cache key
+    chat2.complete = never
+    r2 = writeup.write_stories(env.conn, env.cfg["id"], env.cfg, chat=chat2, now=NOW)
+    assert r2["llm_calls"] == 0 and r2["llm_cache_hits"] == 1 and r2["failed"] == 1
+
+
 def test_priority_told_first(env):
     build_story(
         env,
