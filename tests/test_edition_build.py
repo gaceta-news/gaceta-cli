@@ -326,3 +326,18 @@ def test_next_update_from_schedule(env):
     nxt = datetime.fromisoformat(ed["next_update"])
     assert (nxt.date() - after_last.date()).days == 1
     assert (nxt.hour, nxt.minute) == (10, 0)
+
+
+def test_stale_after_h_from_schedule(env):
+    """The banner threshold rides in the snapshot: default 14, [schedule]
+    stale_after_h when set, back to 14 when unparsable or absurd."""
+    _rich_fixture(env)
+    kw = dict(date_str=_edition_date(), max_privacy="private",
+              data_dir=env.data_dir, force=True)
+    ed = build_edition(env.conn, env.cfg["id"], env.cfg, **kw)
+    assert ed["stale_after_h"] == 14  # no [schedule] in the fixture config
+    env.cfg["schedule"] = {"stale_after_h": 4}
+    assert build_edition(env.conn, env.cfg["id"], env.cfg, **kw)["stale_after_h"] == 4
+    for bad in ({"stale_after_h": "soon"}, {"stale_after_h": 0}, {"stale_after_h": 10000}):
+        env.cfg["schedule"] = bad
+        assert build_edition(env.conn, env.cfg["id"], env.cfg, **kw)["stale_after_h"] == 14

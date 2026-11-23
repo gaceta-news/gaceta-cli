@@ -136,6 +136,7 @@ never in code.
 | `[embed]`, `[llm.editor]` | providers: `ollama`, `openai` (compatible), or `fake` |
 | `[cluster]` | `threshold` (cosine "same story") and `window_days` |
 | `[[sections]]` | named sections matched by source kind, source-id prefix or keywords |
+| `[schedule]` | release slots for the served page: `every_hours` (2), `start_hour` (6), `end_hour` (22), `minute` (30) → "próxima ~HH:MM"; `stale_after_h` (14) → when the banner below appears |
 | `[privacy]` | canary terms pinned to `private` / `household` |
 | `[conditions.<name>]` | optional boxes of moving numbers (weather, a level), see below |
 
@@ -202,8 +203,9 @@ A provider that fails or returns nothing is skipped; a number never blocks the p
 | `ingest <adapter\|all>` | pull new items |
 | `embed`, `cluster` | embed items locally and group them into stories |
 | `write` | LLM write-ups for stories that changed (`--max-llm-calls`, `--max-change-calls` cap spend) |
-| `media` | cache thumbnails for recent stories |
+| `media` | cache thumbnails for recent stories (`fetch`, `--min-free-gb` skips on low disk); `prune` deletes cached files no recent edition needs |
 | `edition`, `render` | build an immutable edition snapshot and render it to HTML |
+| `status` | read-only reader build health: last ok/fail build per reader, from `<data>/status/` (no database) |
 | `serve` | localhost server with reactions (put a reverse proxy or a tailnet in front) |
 | `print` | one-file HTML/PDF edition, for readers without a device |
 | `trial` | finite manual run of the real pipeline: preview/start/run/status/stop/keep/remove — synthetic offline reader, fake models only, 1 run/day, ≤3 runs total, 7-day expiry, no scheduling ([docs/release/trial.md](docs/release/trial.md)) |
@@ -241,6 +243,37 @@ Early (v0.2) and used every day by its authors. Known gaps:
   public stories and get an evidence-graded "what changed since I last read"
   brief without ever touching the private database. An MCP server on top of it
   is still on the roadmap.
+
+## Always-on health
+
+On an always-on box the paper builds itself on a schedule, so gaceta records what happened
+where a health check can read it without parsing logs:
+
+- After every `gaceta edition` run — success, failure or a nothing-new skip — the CLI
+  rewrites `<data>/status/<reader>.json` atomically:
+  `reader, built_at, last_ok, last_fail, fail_reason, edition_id, new_items, llm_calls,
+  consecutive_failures` (plus `skipped` after a skip). `fail_reason` is a short,
+  scrubbed line: no URLs with query strings, home paths folded to `~`.
+- `gaceta status [--reader <id>] [--json]` prints that file (plus `age_s` of `last_ok`),
+  or every reader's file. Read-only: no database is opened, so a cron or an owner's
+  agent can poll it freely.
+- `gaceta edition --only-if-new` builds nothing (exit 0, `{"skipped": "nothing new"}` in
+  the status file, `built_at` unchanged) when no item was ingested and no story changed
+  since the previous edition's build — a scheduled run on a quiet day costs one query,
+  not a build. Checked before `--force`.
+- The rendered page tells readers when it is late: once the edition is older than
+  `[schedule] stale_after_h` hours (default 14) a small, calm banner appears above the
+  masthead — "Edición de las 09:30" when built today, "Edición de ayer 23:30",
+  "Edición del <fecha>" when older (localized; English, Portuguese, French, German and
+  Italian too). Static exports bake it; the served page refreshes it from `/api/state`'s
+  `built_at`, so a paper left open admits its age as hours pass.
+- The media cache never grows forever: `gaceta media prune --days 30 [--dry-run]` deletes
+  cached files that no edition built in the window references and that are older than the
+  window by mtime — never anything a live edition needs (an unreadable in-window snapshot
+  aborts the prune rather than guessing). Prints the count and bytes freed, and drops the
+  matching `media` rows so a still-active story re-fetches on the next `gaceta media`.
+  `gaceta media [--min-free-gb G]` (default 0 = off) skips fetching new media — one log
+  line, exit 0 — when the media filesystem is below G GB free.
 
 ## Development
 

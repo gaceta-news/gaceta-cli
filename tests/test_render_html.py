@@ -193,3 +193,61 @@ def test_update_leads_with_change_and_only_uses_a_new_source_image():
     story["history"][-1]["what_changed"] = None
     assert 'class="story-update"' not in article()
     assert 'src="../media/vieja.jpg"' in article().split('<header', 1)[0]
+
+
+# ------------------------------------------------------------- stale banner
+
+
+def _bare_edition(built_at: str, lang: str = "es") -> dict:
+    return {"version": 1,
+            "reader": {"id": "r", "name": "R", "langs": [lang]},
+            "date": built_at[:10], "built_at": built_at, "stale_after_h": 14,
+            "max_privacy": "public", "portada": [], "sections": [], "stories": {}}
+
+
+def _banner(edition: dict, now: str) -> str:
+    from datetime import datetime
+    doc = render(edition, "public", now=datetime.fromisoformat(now))
+    start = doc.index('<p class="stale-banner"')
+    return doc[start:doc.index("</p>", start) + 4]
+
+
+def test_stale_banner_today_yesterday_older_es():
+    # built today, older than the 14 h threshold → "Edición de las HH:MM"
+    banner = _banner(_bare_edition("2026-11-22T08:00:00-05:00"), "2026-11-22T23:10:00-05:00")
+    assert banner.startswith('<p class="stale-banner" role="status" '
+                            'data-built="2026-11-22T08:00:00-05:00" data-stale-h="14">')
+    assert " hidden" not in banner.split(">", 1)[0]
+    assert banner.endswith("Edición de las 08:00</p>")
+    # built yesterday → "Edición de ayer HH:MM"
+    banner = _banner(_bare_edition("2026-11-21T22:00:00-05:00"), "2026-11-22T13:00:00-05:00")
+    assert "Edición de ayer 22:00" in banner and " hidden" not in banner.split(">", 1)[0]
+    # older still → "Edición del <fecha>"
+    banner = _banner(_bare_edition("2026-11-15T09:30:00-05:00"), "2026-11-22T13:00:00-05:00")
+    assert "Edición del 15 de noviembre de 2026" in banner
+
+
+def test_stale_banner_english_strings():
+    ed = _bare_edition("2026-11-22T08:00:00-05:00", lang="en")
+    assert "Edition from 08:00 today" in _banner(ed, "2026-11-22T23:10:00-05:00")
+    ed = _bare_edition("2026-11-21T22:00:00-05:00", lang="en")
+    assert "Edition from 22:00 yesterday" in _banner(ed, "2026-11-22T13:00:00-05:00")
+    ed = _bare_edition("2026-11-15T09:30:00-05:00", lang="en")
+    assert "Edition from November 15, 2026" in _banner(ed, "2026-11-22T13:00:00-05:00")
+
+
+def test_stale_banner_hidden_while_fresh_and_threshold_honored():
+    from datetime import datetime
+
+    ed = _bare_edition("2026-11-22T20:00:00-05:00")
+    banner = _banner(ed, "2026-11-22T23:10:00-05:00")  # 3 h old < 14 h
+    assert " hidden" in banner.split(">", 1)[0]          # in the DOM, hidden
+    ed["stale_after_h"] = 2
+    banner = _banner(ed, "2026-11-22T23:10:00-05:00")     # now older than 2 h
+    assert 'data-stale-h="2"' in banner and " hidden" not in banner.split(">", 1)[0]
+    # the element sits above the masthead; editions without built_at show none
+    doc = render(ed, "public", now=datetime.fromisoformat("2026-11-22T23:10:00-05:00"))
+    assert doc.index('<p class="stale-banner"') < doc.index('<header class="masthead">')
+    del ed["built_at"]
+    doc = render(ed, "public", now=datetime.fromisoformat("2026-11-22T23:10:00-05:00"))
+    assert '<p class="stale-banner"' not in doc

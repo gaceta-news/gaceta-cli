@@ -129,7 +129,10 @@
     "conditions.live": "in diretta · {time}",
     "conditions.stale": "ultimo dato {time}",
     "reason.portada_recent": "Già in prima pagina ({v})",
-    "reason.portada_rest": "In prima pagina da varie edizioni; oggi riposa"
+    "reason.portada_rest": "In prima pagina da varie edizioni; oggi riposa",
+    "stale.today": "Edizione delle {time}",
+    "stale.yesterday": "Edizione di ieri {time}",
+    "stale.date": "Edizione del {date}"
   },
   "js": {
     "src.follow_done": "✓ Seguirai {name}",
@@ -191,6 +194,9 @@
     "fresh.aria": "C'è un'edizione più recente: ricarica",
     "conditions.stale": "ultimo dato {time}",
     "boot.retry": "Non ho potuto scaricare quel che hai già visto — riprovo…",
-    "boot.offline": "Nessuna connessione con la gazzetta: tutto appare come nuovo"
+    "boot.offline": "Nessuna connessione con la gazzetta: tutto appare come nuovo",
+    "stale.today": "Edizione delle {time}",
+    "stale.yesterday": "Edizione di ieri {time}",
+    "stale.date": "Edizione del {date}"
   }
 }

@@ -4,9 +4,10 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import config, db, ingest, media as media_mod
+from . import config, db, ingest, media as media_mod, status
 from . import sources as sources_registry
 from .edition import build_edition, snapshot_path
+from .edition import build as edition_build
 from .editor import cluster
 from .editor.changes import note_changes
 from .editor.writeup import write_stories
@@ -388,15 +389,42 @@ def cmd_write(args) -> int:
 
 
 def cmd_media(args) -> int:
+    action = getattr(args, "action", None)
+    if action == "prune":
+        conn = db.connect(_db_path())
+        try:
+            db.init(conn)
+            result = media_mod.prune_media(conn, config.data_dir(),
+                                           days=args.days, dry_run=args.dry_run)
+        except media_mod.MediaError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        finally:
+            conn.close()
+        print(f"media prune days={result['days']}: {result['deleted']} files, "
+              f"{result['bytes_freed'] / 1e6:.1f} MB freed "
+              f"({result['referenced']} referenced, {result['considered']} cached)"
+              f"{' — dry-run, nothing deleted' if result['dry_run'] else ''}")
+        return 0
+
+    reader = getattr(args, "reader", None)
+    if not reader:
+        print("media fetch needs --reader (or use: gaceta media prune)", file=sys.stderr)
+        return 2
     conn = db.connect(_db_path())
     try:
         db.init(conn)
         result = media_mod.collect_media(
-            conn, args.reader, config.data_dir(),
+            conn, reader, config.data_dir(),
             days=args.days, max_fetch=args.max_fetch,
+            min_free_gb=getattr(args, "min_free_gb", 0.0) or 0.0,
         )
     finally:
         conn.close()
+    if result.get("skipped_low_disk"):
+        print(f"media reader={reader}: {result['free_gb']:.1f} GB free < "
+              f"{args.min_free_gb} GB — skipped fetching new media")
+        return 0
     conn = db.connect(_db_path())
     try:
         rows = conn.execute(
@@ -406,7 +434,7 @@ def cmd_media(args) -> int:
         conn.close()
     summary = ", ".join(f"{r['kind']}/{r['status']}={r['n']}" for r in rows) or "none"
     print(
-        f"media reader={args.reader} days={args.days}: {result['candidates']} candidate items, "
+        f"media reader={reader} days={args.days}: {result['candidates']} candidate items, "
         f"{result['planned']} fetched this run ({result['bytes_downloaded'] / 1e6:.1f} MB); "
         f"table: {summary}"
     )
@@ -415,25 +443,97 @@ def cmd_media(args) -> int:
 
 def cmd_edition(args) -> int:
     cfg = config.load_reader(args.reader)
+    data = config.data_dir()
     conn = db.connect(_db_path())
     try:
         db.init(conn)
+        # the build's input delta: what changed since the reader's previous
+        # edition (drives new_items in the status file, and the --only-if-new
+        # gate below, checked before anything builds)
+        prev = edition_build.previous_built_ts(conn, args.reader)
+        new_items = edition_build.new_items_since(conn, args.reader, prev)
+        if (args.only_if_new and prev is not None and new_items == 0
+                and edition_build.stories_changed_since(conn, args.reader, prev) == 0):
+            doc = status.record_skip(data, args.reader, new_items=0)
+            print(f"edition reader={args.reader}: nothing new since the last build "
+                  f"({doc.get('built_at') or 'never'}) — no new edition")
+            return 0
         edition = build_edition(
             conn, args.reader, cfg, date_str=args.date,
             max_privacy=args.max_privacy, force=args.force,
-            data_dir=config.data_dir(),
+            data_dir=data,
         )
     except (ValueError, FileExistsError) as e:
+        status.record_failure(data, args.reader, e)
         print(str(e), file=sys.stderr)
         return 2
+    except BaseException as e:
+        # any other exception propagates as today; the file still says the
+        # reader's edition is now late, which is exactly what the owner checks
+        status.record_failure(data, args.reader, e)
+        raise
     finally:
         conn.close()
+    status.record_success(data, args.reader, edition, new_items=new_items)
     counts = ", ".join(f"{s['id']}={len(s['stories'])}" for s in edition["sections"])
     print(
         f"edition reader={args.reader} date={edition['date']} max={args.max_privacy}: "
         f"portada={len(edition['portada'])} stories={len(edition['stories'])} "
         f"sections[{counts}] → {snapshot_path(config.data_dir(), args.reader, edition['date'], args.max_privacy)}"
     )
+    return 0
+
+
+def cmd_status(args) -> int:
+    """`gaceta status`: read-only reader build health from <data>/status/.
+
+    One JSON file per reader, written by `gaceta edition`; the command only
+    reads them (no database, no locks) so an owner's agent can poll freely."""
+    import json
+
+    data = config.data_dir()
+    if args.reader:
+        try:
+            doc = status.load(data, args.reader)
+        except ValueError as e:
+            print(str(e), file=sys.stderr)
+            return 2
+        if doc is None:
+            print(f"no status file for reader '{args.reader}' "
+                  f"(run: gaceta edition --reader {args.reader})", file=sys.stderr)
+            return 2
+        docs = {args.reader: doc}
+    else:
+        docs = status.load_all(data)
+    if args.json:
+        rows = {rid: dict(doc, age_s=status.age_s(doc)) for rid, doc in docs.items()}
+        print(json.dumps(rows[args.reader] if args.reader else rows,
+                         ensure_ascii=False, indent=2))
+        return 0
+    if not docs:
+        print(f"no reader status under {status.status_dir(data)} yet "
+              "(it appears after the first `gaceta edition` run)")
+        return 0
+    for rid, doc in docs.items():
+        bits = [f"reader={rid}"]
+        if doc.get("skipped"):
+            bits.append(f"skipped={doc['skipped']}")
+        bits.append(f"built={doc.get('built_at') or 'never'}")
+        age = status.age_s(doc)
+        if age is not None:
+            bits.append(f"age={age}s")
+        if doc.get("edition_id"):
+            bits.append(f"edition={doc['edition_id']}")
+        if doc.get("new_items") is not None:
+            bits.append(f"new_items={doc['new_items']}")
+        if doc.get("last_fail"):
+            bits.append(f"last_fail={doc['last_fail']}")
+            bits.append(f"consecutive_failures={doc.get('consecutive_failures') or 0}")
+            if doc.get("fail_reason"):
+                bits.append(f"reason={doc['fail_reason']}")
+        else:
+            bits.append("ok")
+        print(" ".join(bits))
     return 0
 
 
@@ -956,11 +1056,28 @@ def main(argv=None) -> int:
                     help="LLM call budget for 'what changed' notes (default 40)")
     pw.set_defaults(func=cmd_write)
 
-    pm = sub.add_parser("media", help="discover and cache media for recent story items")
-    pm.add_argument("--reader", required=True)
+    pm = sub.add_parser("media", help="cache media for recent stories (fetch) or prune the cache (prune)")
+    pm.add_argument("--reader", default=None, help="reader id (fetch)")
     pm.add_argument("--days", type=int, default=14, help="last_seen window in days (default 14)")
     pm.add_argument("--max-fetch", type=int, default=300,
                     help="network request budget: page GETs + image downloads (default 300)")
+    pm.add_argument("--min-free-gb", type=float, default=0.0,
+                    help="skip fetching when the media filesystem has less than this "
+                         "many GB free (default 0 = off)")
+    msub = pm.add_subparsers(dest="action")
+    pmf = msub.add_parser("fetch", help="discover and cache media for recent story items")
+    pmf.add_argument("--reader", required=True)
+    pmf.add_argument("--days", type=int, default=14, help="last_seen window in days (default 14)")
+    pmf.add_argument("--max-fetch", type=int, default=300,
+                     help="network request budget: page GETs + image downloads (default 300)")
+    pmf.add_argument("--min-free-gb", type=float, default=0.0,
+                     help="skip fetching when the media filesystem has less than this "
+                          "many GB free (default 0 = off)")
+    mpr = msub.add_parser("prune", help="delete cached media files no edition in the window references")
+    mpr.add_argument("--days", type=int, default=30,
+                     help="editions built in the last N days keep their files; older "
+                          "unreferenced files go (default 30)")
+    mpr.add_argument("--dry-run", action="store_true", help="report what would go, delete nothing")
     pm.set_defaults(func=cmd_media)
 
     ped = sub.add_parser("edition", help="build an immutable edition snapshot")
@@ -968,7 +1085,17 @@ def main(argv=None) -> int:
     ped.add_argument("--date", default=None, help="edition date YYYY-MM-DD (default today)")
     ped.add_argument("--max-privacy", default="private", choices=("public", "household", "private"))
     ped.add_argument("--force", action="store_true", help="overwrite an existing snapshot")
+    ped.add_argument("--only-if-new", action="store_true",
+                    help="skip the build (exit 0) when nothing was ingested and no story "
+                         "changed since the previous edition's build; checked before --force")
     ped.set_defaults(func=cmd_edition)
+
+    pst = sub.add_parser("status", help="read-only: when each reader's edition was last built")
+    pst.add_argument("--reader", default=None,
+                     help="one reader (default: every reader with a status file)")
+    pst.add_argument("--json", action="store_true",
+                    help="print the status JSON, plus age_s of last_ok")
+    pst.set_defaults(func=cmd_status)
 
     pr = sub.add_parser("render", help="render an edition snapshot to static HTML")
     pr.add_argument("--reader", required=True)

@@ -129,7 +129,10 @@
     "conditions.live": "live · {time}",
     "conditions.stale": "last reading {time}",
     "reason.portada_recent": "Already on the front page ({v})",
-    "reason.portada_rest": "Led recent front pages; resting today"
+    "reason.portada_rest": "Led recent front pages; resting today",
+    "stale.today": "Edition from {time} today",
+    "stale.yesterday": "Edition from {time} yesterday",
+    "stale.date": "Edition from {date}"
   },
   "js": {
     "src.follow_done": "✓ You'll follow {name}",
@@ -191,6 +194,9 @@
     "fresh.aria": "A newer edition is available: reload",
     "conditions.stale": "last reading {time}",
     "boot.retry": "Couldn't fetch what you've already seen — retrying…",
-    "boot.offline": "No connection to the paper: everything shows as new"
+    "boot.offline": "No connection to the paper: everything shows as new",
+    "stale.today": "Edition from {time} today",
+    "stale.yesterday": "Edition from {time} yesterday",
+    "stale.date": "Edition from {date}"
   }
 }

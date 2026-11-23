@@ -129,7 +129,10 @@
     "conditions.live": "live · {time}",
     "conditions.stale": "letzte Messung {time}",
     "reason.portada_recent": "War schon auf Seite eins ({v})",
-    "reason.portada_rest": "War zuletzt oft auf Seite eins; heute Pause"
+    "reason.portada_rest": "War zuletzt oft auf Seite eins; heute Pause",
+    "stale.today": "Ausgabe von {time}",
+    "stale.yesterday": "Ausgabe von gestern {time}",
+    "stale.date": "Ausgabe vom {date}"
   },
   "js": {
     "src.follow_done": "✓ Du folgst {name} ab jetzt",
@@ -191,6 +194,9 @@
     "fresh.aria": "Eine neuere Ausgabe ist da: neu laden",
     "conditions.stale": "letzte Messung {time}",
     "boot.retry": "Konnte nicht laden, was du schon gesehen hast — neuer Versuch…",
-    "boot.offline": "Keine Verbindung zur Zeitung: alles erscheint als neu"
+    "boot.offline": "Keine Verbindung zur Zeitung: alles erscheint als neu",
+    "stale.today": "Ausgabe von {time}",
+    "stale.yesterday": "Ausgabe von gestern {time}",
+    "stale.date": "Ausgabe vom {date}"
   }
 }

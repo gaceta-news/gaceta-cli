@@ -38,6 +38,20 @@ WINDOW_DAYS = 14
 PORTADA_SIZE = 6
 SECTION_CAP = 30  # deeper sections: hiding seen stories reveals more below
 MAX_THUMBS = 4  # lead + up to 3 more
+# [schedule] stale_after_h (hours): past this age the rendered page shows its
+# calm "when was this built" banner (render/html.py); 14 covers a paper built
+# on a 2 h rhythm going quiet for most of a day without crying wolf.
+DEFAULT_STALE_AFTER_H = 14
+
+
+def stale_after_h(cfg: dict) -> int:
+    """The banner threshold from [schedule] stale_after_h (default 14)."""
+    try:
+        hours = int((cfg.get("schedule") or {}).get("stale_after_h",
+                                                    DEFAULT_STALE_AFTER_H))
+    except (TypeError, ValueError):
+        return DEFAULT_STALE_AFTER_H
+    return hours if 1 <= hours <= 24 * 31 else DEFAULT_STALE_AFTER_H
 # section ids stay stable across languages (links, closed-state); titles follow ui lang
 TOLD_SECTION = ("lo-que-te-conte", "section.told")
 REST_SECTION = ("otros", "section.rest")
@@ -409,6 +423,43 @@ def snapshot_path(data_dir: Path, reader_id: str, date_str: str, max_privacy: st
     return data_dir / "editions" / reader_id / f"{date_str}-{max_privacy}.json"
 
 
+def previous_built_ts(conn: sqlite3.Connection, reader_id: str) -> int | None:
+    """Build time of the reader's most recent edition (any date, any privacy),
+    or None before the first build — the baseline for --only-if-new."""
+    row = conn.execute(
+        "SELECT MAX(built_at) AS m FROM editions WHERE reader_id = ?", (reader_id,)
+    ).fetchone()
+    return int(row["m"]) if row and row["m"] is not None else None
+
+
+def new_items_since(conn: sqlite3.Connection, reader_id: str, since: int | None) -> int:
+    """Items ingested for this reader after ``since`` (its annotations only;
+    re-ingesting an existing item never counts — ingested_at is set once).
+    ``since=None`` counts every item the reader has annotated."""
+    if since is None:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM annotations WHERE reader_id = ?", (reader_id,)
+        ).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT COUNT(*) AS n FROM annotations a JOIN items i ON i.id = a.item_id "
+            "WHERE a.reader_id = ? AND i.ingested_at > ?",
+            (reader_id, int(since)),
+        ).fetchone()
+    return int(row["n"])
+
+
+def stories_changed_since(conn: sqlite3.Connection, reader_id: str, since: int) -> int:
+    """Stories touched after ``since``: a member joined (cluster) or a card was
+    written/rewritten (write) — both stamp stories.updated_at."""
+    row = conn.execute(
+        "SELECT COUNT(*) AS n FROM stories WHERE reader_id = ? "
+        "AND updated_at IS NOT NULL AND updated_at > ?",
+        (reader_id, int(since)),
+    ).fetchone()
+    return int(row["n"])
+
+
 def build_edition(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
                   date_str: str | None = None, max_privacy: str = "private",
                   force: bool = False, data_dir: Path | None = None,
@@ -526,6 +577,7 @@ def build_edition(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
             built_ts
         ).astimezone().isoformat(timespec="seconds"),
         "max_privacy": max_privacy,
+        "stale_after_h": stale_after_h(cfg),
         "portada": portada,
         "sections": [s for s in sections if s["stories"] or s["id"] != REST_SECTION[0]],
         "stories": stories,

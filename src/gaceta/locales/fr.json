@@ -129,7 +129,10 @@
     "conditions.live": "en direct · {time}",
     "conditions.stale": "dernier relevé {time}",
     "reason.portada_recent": "Déjà à la une ({v})",
-    "reason.portada_rest": "En une depuis plusieurs éditions ; au repos aujourd’hui"
+    "reason.portada_rest": "En une depuis plusieurs éditions ; au repos aujourd’hui",
+    "stale.today": "Édition de {time}",
+    "stale.yesterday": "Édition d'hier {time}",
+    "stale.date": "Édition du {date}"
   },
   "js": {
     "src.follow_done": "✓ Tu suivras {name}",
@@ -191,6 +194,9 @@
     "fresh.aria": "Une édition plus récente est disponible : recharger",
     "conditions.stale": "dernier relevé {time}",
     "boot.retry": "Impossible de récupérer ce que tu as déjà vu — nouvelle tentative…",
-    "boot.offline": "Pas de connexion au journal : tout apparaît comme nouveau"
+    "boot.offline": "Pas de connexion au journal : tout apparaît comme nouveau",
+    "stale.today": "Édition de {time}",
+    "stale.yesterday": "Édition d'hier {time}",
+    "stale.date": "Édition du {date}"
   }
 }

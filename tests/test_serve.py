@@ -271,6 +271,21 @@ def test_api_state_carries_edition_revs_for_open_pages(server):
     assert st["built_at"] == ed.get("built_at")
 
 
+def test_served_page_carries_the_stale_banner(server):
+    """The banner is baked by the static render (hidden while fresh) and
+    react.js re-words it from /api/state's built_at as the page ages."""
+    port, env, ed = server
+    _, _, body = req(port, "GET", f"/r/{env.cfg['id']}/")
+    html = body.decode()
+    assert f'<p class="stale-banner" role="status" data-built="{ed["built_at"]}"' in html
+    tag = html.split('<p class="stale-banner"', 1)[1].split(">", 1)[0]
+    assert " hidden" in tag and f'data-stale-h="{ed["stale_after_h"]}"' in tag
+    assert html.index('<p class="stale-banner"') < html.index('<header class="masthead">')
+    # what the served page refreshes it with
+    _, _, body = req(port, "GET", f"/api/state?reader={env.cfg['id']}&by=Bob")
+    assert json.loads(body)["built_at"] == ed["built_at"]
+
+
 def test_api_readers_lists_household(server):
     port, env, ed = server
     toml = env.data_dir / "readers" / env.cfg["id"] / "reader.toml"
