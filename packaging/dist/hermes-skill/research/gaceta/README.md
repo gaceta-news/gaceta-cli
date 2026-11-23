@@ -1,7 +1,7 @@
 # gaceta skill — packaged for Hermes
 
 Generated from `packaging/catalog.json` + `packaging/templates/` at candidate
-**0.3.0b4** by `scripts/build-packages.py`. Do not edit by hand: edit the
+**0.3.0b5** by `scripts/build-packages.py`. Do not edit by hand: edit the
 catalog/templates and rebuild, so every surface stays in parity (CI checks
 this with `scripts/check-parity.py`).
 
@@ -10,7 +10,7 @@ this with `scripts/check-parity.py`).
   public-only export; nothing else. The unchanged discipline text from
   `docs/agent/SKILL.md` is embedded in `SKILL.md`.
 - **Home:** `~/.hermes/skills/research/` (unzip the archive there)
-- **Engine (not included):** uv tool install git+https://github.com/gaceta-news/gaceta-cli@v0.3.0b4
+- **Engine (not included):** uv tool install git+https://github.com/gaceta-news/gaceta-cli@v0.3.0b5
 - **License:** AGPL-3.0-only · **Source:** https://github.com/gaceta-news/gaceta-cli · **Issues:** https://github.com/gaceta-news/gaceta-cli/issues
 
 ## Files
@@ -25,7 +25,7 @@ scripts/make_demo_export.py  byte-identical copy of docs/agent/demo/
 assets/demo-baseline.json    version-only example memory (demo-trail v1)
 ```
 
-## Try it offline (0.3.0b4, synthetic data)
+## Try it offline (0.3.0b5, synthetic data)
 
 ```bash
 python scripts/make_agent_demo.py WORKDIR

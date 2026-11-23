@@ -12,4 +12,4 @@ tag v0.3.0b1 is cut at release review; parity CI rejects tag/wheel/docs
 drift from this value.
 """
 
-__version__ = "0.3.0b4"
+__version__ = "0.3.0b5"
