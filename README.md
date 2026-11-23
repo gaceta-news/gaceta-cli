@@ -333,8 +333,11 @@ Tests use synthetic fixtures and fake models only, with no network.
 
 ### Contributing and releases
 
-- `main` is protected: every change arrives by pull request, the `test (3.12)` and `test (3.13)` checks
-  must pass, and PRs are merged by **rebase** only (no merge or squash commits). A red `main` stops the line.
+- `main` is protected: every change arrives by pull request and the `test (3.12)` and `test (3.13)` checks
+  must pass. Force-pushes and branch deletion are blocked for everyone. A red `main` stops the line.
+- Maintainers don't use GitHub's merge button (any GitHub-side merge stamps the merging account on the
+  commit). They land a green PR with `scripts/land.sh <pr>`, which fast-forwards `main` to the PR's own
+  commits after checking the neutral author/committer identity and the required checks on that exact commit.
 - The version lives only in `src/gaceta/__init__.py` (hatch reads it; packaging parity checks the rest).
   Bump it in a PR.
 - Release from a clean, green `main` only:
