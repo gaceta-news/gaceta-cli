@@ -11,6 +11,7 @@ import os
 import time
 import urllib.error
 import urllib.request
+import uuid
 from typing import Protocol
 
 
@@ -19,6 +20,45 @@ def _err_detail(e) -> str:
         return (e.read() or b"")[:200].decode("utf-8", "replace")
     except Exception:
         return ""
+
+
+_process_uuid: str | None = None
+
+
+def _uuid_once() -> str:
+    """The literal ${uuid} header token: exactly one uuid4 per process."""
+    global _process_uuid
+    if _process_uuid is None:
+        _process_uuid = str(uuid.uuid4())
+    return _process_uuid
+
+
+UUID_TOKEN = "${uuid}"
+
+
+def _clean_headers(headers) -> dict | None:
+    """Validate a headers table from config into request headers.
+
+    Values are scalars (the literal ${uuid} expands to one uuid4 per process).
+    Authorization is rejected: keys only ever travel via api_key_env. Header
+    values are never logged, printed or stored anywhere but the request.
+    """
+    if headers is None:
+        return None
+    if not isinstance(headers, dict):
+        raise ValueError("llm headers must be a table (dict)")
+    out: dict[str, str] = {}
+    for k, v in headers.items():
+        name = str(k).strip()
+        if not name:
+            raise ValueError("llm headers: a header name is empty")
+        if name.lower() == "authorization":
+            raise ValueError(
+                "llm headers must not set Authorization; API keys only travel via api_key_env")
+        if isinstance(v, (dict, list)):
+            raise ValueError(f"llm header {name!r} must be one value, not a table/array")
+        out[name] = str(v).replace(UUID_TOKEN, _uuid_once())
+    return out or None
 
 
 class LLMRefused(Exception):
@@ -46,6 +86,9 @@ class OpenAICompatChat:
 
     2 retries with backoff on 429/5xx, timeout 60 s. usage carries the served
     model from the API response (`model` field) so callers can verify it.
+    `headers` (reader config [llm.editor] headers) are extra request headers;
+    ${uuid} in a value is one uuid4 per process; Authorization is rejected
+    (keys only ever travel via api_key_env, values are never logged).
     """
 
     def __init__(
@@ -57,6 +100,7 @@ class OpenAICompatChat:
         extra_body: dict | None = None,
         timeout: int = 60,
         retries: int = 2,
+        headers: dict | None = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.api_key_env = api_key_env
@@ -65,6 +109,7 @@ class OpenAICompatChat:
         self.extra_body = dict(extra_body) if extra_body else None
         self.timeout = timeout
         self.retries = retries
+        self.headers = _clean_headers(headers)
         self.name = f"openai-compat:{model}"
 
     def complete(
@@ -89,7 +134,8 @@ class OpenAICompatChat:
                 f"{self.base_url}/chat/completions",
                 data=body,
                 headers={"Content-Type": "application/json",
-                         **({"Authorization": f"Bearer {key}"} if key else {})},
+                         **({"Authorization": f"Bearer {key}"} if key else {}),
+                         **(self.headers or {})},
                 method="POST",
             )
             try:
@@ -194,6 +240,7 @@ def from_config(cfg: dict) -> OpenAICompatChat | FakeChat:
             allow_private=cfg.get("allow_private", False),
             extra_body=extra,
             timeout=int(cfg.get("timeout", 60)),  # raise for slow local models on CPU
+            headers=cfg.get("headers"),
         )
     if provider == "fake":
         return FakeChat(allow_private=cfg.get("allow_private", True), cards=True)
