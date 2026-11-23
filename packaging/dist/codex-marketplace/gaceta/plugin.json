@@ -1,7 +1,7 @@
 {
   "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "gaceta",
-  "version": "0.3.0b1",
+  "version": "0.3.0b2",
   "description": "Read-only lookup of a gaceta reader's public edition export: stories with their sources, and a what-changed-since-your-baseline brief. Skills only: no MCP server, no hooks, no network."
 }
 

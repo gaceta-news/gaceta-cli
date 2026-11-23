@@ -1,7 +1,7 @@
 # gaceta — what changed in your stories since you last read them
 
 > One canonical page, two languages: **English** · [Español](landing.es.md)
-> Draft — candidate 0.3.0b1 · single source: `packaging/catalog.json`
+> Draft — candidate 0.3.0b2 · single source: `packaging/catalog.json`
 > (rendered by `scripts/build-packages.py`, CI-checked by `scripts/check-parity.py`)
 
 ## The recurring job
@@ -102,11 +102,11 @@ skill, then `gaceta agent since --reader demo --baseline … --path WORKDIR/expo
 ## Install (pinned)
 
 ```bash
-uv tool install git+https://github.com/gaceta-news/gaceta-cli@v0.3.0b1
-gaceta --version        # must print 0.3.0b1
+uv tool install git+https://github.com/gaceta-news/gaceta-cli@v0.3.0b2
+gaceta --version        # must print 0.3.0b2
 ```
 
-**v0.3.0b1 is the intended beta pin**, cut at release review — until the tag
+**v0.3.0b2 is the intended beta pin**, cut at release review — until the tag
 exists publicly, this is the shape of the install, not a live URL. The
 published 0.2.x tags are real but predate the agent-demo wheel assets,
 `--version` and the packaged skills: pinning an install at 0.2.0 gets a
@@ -151,7 +151,7 @@ claimed for any client; those are separate, pre-registered evidence.
 
 | What | Result |
 |---|---|
-| Candidate | gaceta 0.3.0b1 (P4 beta candidate; the v-tag is cut at release review — published 0.2.x tags predate these features, so 0.2.0 is not a valid pin for them) — `gaceta --version`, wheel METADATA and every artifact stamp agree |
+| Candidate | gaceta 0.3.0b2 (P4 beta candidate; the v-tag is cut at release review — published 0.2.x tags predate these features, so 0.2.0 is not a valid pin for them) — `gaceta --version`, wheel METADATA and every artifact stamp agree |
 | Codex | codex-cli 0.171.0 — stock `codex plugin marketplace add` + `codex plugin list` on a sandboxed CODEX_HOME; no experimental features or adapters enabled |
 | Hermes | Hermes Agent v0.23.2 — packaged skill validated against the stock skills conventions (frontmatter, layout, description limit); registry/hub install is exercised only once the release source is public |
 | Python | 3.12 (floor of requires-python) |
