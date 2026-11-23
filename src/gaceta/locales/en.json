@@ -90,6 +90,8 @@
     "discovery.in_issue": "In this issue:",
     "discovery.cited_one": "Cited in {n} story",
     "discovery.cited_other": "Cited in {n} stories",
+    "discovery.cited_by": "by {names}",
+    "discovery.lately": "Lately:",
     "saved": "Saved",
     "saved.untitled": "(untitled)",
     "saved.on": "Saved on {date}",

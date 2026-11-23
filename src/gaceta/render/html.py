@@ -504,6 +504,7 @@ a.src-name {
 }
 a.src-name:hover { text-decoration-thickness: 2px; }
 .src-meta { color: var(--muted); font-size: .8rem; margin-left: .45rem; }
+.src-about { margin: .25rem 0 0; font-size: .9rem; line-height: 1.35; }
 .src-links { margin: .3rem 0 0; color: var(--muted); font-size: .85rem; }
 .src-links a {
   color: var(--ink);
@@ -1124,6 +1125,14 @@ def _render_discovery_entry(entry: dict, stories: dict, *, trial: bool) -> str:
     parts = ['<div class="src-entry">',
              f'<p class="src-head">{name_html}',
              (f'<span class="src-meta">{meta}</span></p>' if meta else "</p>")]
+    if not trial:
+        about = str(entry.get("about") or "").strip()
+        if about:
+            parts.append(f'<p class="src-about">{_esc(about)}</p>')
+        heads = [str(h).strip() for h in (entry.get("headlines") or [])[:2] if str(h or "").strip()]
+        if heads:
+            parts.append(f'<p class="src-links">{_esc(_t("discovery.lately"))} '
+                         f'{" · ".join(_esc(h) for h in heads)}</p>')
     if trial:
         links = []
         for sid in (entry.get("story_ids") or [])[:3]:

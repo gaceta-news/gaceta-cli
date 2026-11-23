@@ -280,12 +280,14 @@ def _existing_hosts_and_names(conn: sqlite3.Connection) -> tuple[set[str], set[s
 def suggestions(conn: sqlite3.Connection, reader_id: str, since: int, *,
                 adapters=(), max_privacy: str = "private",
                 now: float | None = None, limit: int = DEFAULT_LIMIT,
-                lang: str = "es") -> list[dict]:
+                lang: str = "es", require_probe: bool = True) -> list[dict]:
     """Candidate sources the reader does not follow: adapter candidates
     (nostr mentions) + publishing sites: >=MIN_ARTICLE_LINKS article links
     cited by >=MIN_CITING_SOURCES independent sources in this edition's
     stories, excluding existing source sites, big platforms, media hosts,
-    same-author substacks and sites the reader's verdicts push away."""
+    same-author substacks and sites the reader's verdicts push away. A site is
+    shown only once `gaceta sources probe` found it publishing (a live feed);
+    the probe's name, one-line description and latest headlines ride along."""
     skip = decided_keys(conn, reader_id, now)
     out: list[dict] = []
 
@@ -306,6 +308,42 @@ def suggestions(conn: sqlite3.Connection, reader_id: str, since: int, *,
                 "url": str(c.get("url") or ""),
             })
 
+    sites = site_candidates(conn, reader_id, since, max_privacy=max_privacy, skip=skip)
+    probes = probe_rows(conn, [c["site"] for c in sites])
+    domain_out: list[dict] = []
+    for c in sites:
+        p = probes.get(c["site"])
+        if require_probe and not (p and p["ok"]):
+            continue  # unverified or no live feed: never shown (6b v2)
+        reason = i18n.t(lang, "discovery.cited", c["n_stories"])
+        if max_privacy != "public" and c["names"]:
+            # who cites it is the reader's own follows: private-edition detail only
+            shown = c["names"][:2] + ([f"+{len(c['names']) - 2}"] if len(c["names"]) > 2 else [])
+            reason += " · " + i18n.t(lang, "discovery.cited_by", names=", ".join(shown))
+        entry = {"key": f"host:{c['site']}", "name": c["site"], "kind": "site",
+                 "reason": reason, "url": f"https://{c['site']}"}
+        if p:
+            entry["name"] = _probe_name(p, c["site"])
+            if p["description"]:
+                entry["about"] = p["description"]
+            if p["feed_url"]:
+                entry["feed_url"] = p["feed_url"]
+            heads = _json_list(p["headlines"])[:2]
+            if heads:
+                entry["headlines"] = heads
+        domain_out.append(entry)
+        if len(domain_out) >= limit:
+            break  # keep the section calm; best-cited first
+    return out + domain_out
+
+
+def site_candidates(conn: sqlite3.Connection, reader_id: str, since: int, *,
+                    max_privacy: str = "private", skip: set[str] | None = None,
+                    now: float | None = None) -> list[dict]:
+    """Publishing sites cited in this reader's window, best first, before any
+    probe: [{site, n_stories, n_citers, names, liking, example}]. Shared by
+    suggestions() and `gaceta sources probe` (which checks what they are)."""
+    skip = decided_keys(conn, reader_id, now) if skip is None else skip
     existing_hosts, existing_names = _existing_hosts_and_names(conn)
     existing_sites = {_site(h) for h in existing_hosts} | existing_hosts
     stories = _allowed_stories(conn, reader_id, since, max_privacy)
@@ -313,8 +351,8 @@ def suggestions(conn: sqlite3.Connection, reader_id: str, since: int, *,
     cited: dict[str, dict] = {}
     for s in stories:
         for it in conn.execute(
-            "SELECT i.id, i.url, i.body, i.author, i.source_id, src.kind AS src_kind "
-            "FROM story_items si "
+            "SELECT i.id, i.url, i.body, i.author, i.source_id, src.kind AS src_kind, "
+            "src.name AS src_name FROM story_items si "
             "JOIN items i ON i.id = si.item_id LEFT JOIN sources src ON src.id = i.source_id "
             "WHERE si.story_id = ?",
             (s["id"],),
@@ -324,6 +362,7 @@ def suggestions(conn: sqlite3.Connection, reader_id: str, since: int, *,
             # sources' bodies count as citations
             urls = [it["url"]] + ([] if it["src_kind"] == "youtube" else _LINK_RE.findall(body))
             citer = (str(it["source_id"] or ""), _norm(it["author"]))
+            label = str(it["author"] or it["src_name"] or "").strip()
             for url in urls:
                 host = _host(url)
                 if not host:
@@ -332,16 +371,17 @@ def suggestions(conn: sqlite3.Connection, reader_id: str, since: int, *,
                 if kind in ("media", "junk"):
                     continue  # a picture or a blob is not a citation of a source
                 site = _site(host)
-                d = cited.setdefault(site, {"articles": set(), "stories": set(), "citers": set(),
+                d = cited.setdefault(site, {"articles": set(), "stories": set(), "citers": {},
                                             "url": str(url)})
-                d["citers"].add(citer)
+                if label and citer not in d["citers"]:
+                    d["citers"][citer] = label
+                d["citers"].setdefault(citer, "")
                 d["stories"].add(s["id"])
                 if kind == "article":
                     d["articles"].add(str(url).split("#", 1)[0].rstrip("/"))
-    domain_out: list[dict] = []
+    out: list[dict] = []
     for site, d in cited.items():
-        key = f"host:{site}"
-        if key in skip:
+        if f"host:{site}" in skip:
             continue
         if len(d["articles"]) < MIN_ARTICLE_LINKS or len(d["citers"]) < MIN_CITING_SOURCES:
             continue  # needs published pieces AND more than one voice pointing at them
@@ -355,17 +395,50 @@ def suggestions(conn: sqlite3.Connection, reader_id: str, since: int, *,
         liking = sum(taste.get(sid, 0.0) for sid in d["stories"])
         if liking < 0:
             continue  # cited mostly in stories the reader pushed away
-        domain_out.append({
-            "key": key, "name": site, "kind": "site",
-            "reason": i18n.t(lang, "discovery.cited", len(d["stories"])),
-            "url": f"https://{site}",
-            "_rank": (liking, len(d["citers"]), len(d["stories"])),
-        })
-    domain_out.sort(key=lambda e: (tuple(-x for x in e["_rank"]), e["key"]))
-    domain_out = domain_out[:limit]  # keep the section calm; best-cited first
-    for e in domain_out:
-        del e["_rank"]
-    return out + domain_out
+        out.append({"site": site, "n_stories": len(d["stories"]), "n_citers": len(d["citers"]),
+                    "names": sorted({n for n in d["citers"].values() if n}),
+                    "liking": liking, "example": sorted(d["articles"])[0]})
+    out.sort(key=lambda c: (-c["liking"], -c["n_citers"], -c["n_stories"], c["site"]))
+    return out
+
+
+PROBE_COLUMNS = ("site", "checked_at", "ok", "feed_url", "title", "description",
+                 "lang", "newest", "headlines", "note")
+
+
+def probe_rows(conn: sqlite3.Connection, sites: list[str]) -> dict[str, dict]:
+    """source_probes rows for ``sites`` (schema v13); a pre-v13 db → {}."""
+    if not sites:
+        return {}
+    ph = ",".join("?" * len(sites))
+    try:
+        rows = conn.execute(
+            f"SELECT {', '.join(PROBE_COLUMNS)} FROM source_probes WHERE site IN ({ph})",
+            tuple(sites)).fetchall()
+    except sqlite3.OperationalError:
+        return {}
+    return {r[0]: dict(zip(PROBE_COLUMNS, tuple(r))) for r in rows}
+
+
+def _json_list(raw: object) -> list:
+    import json
+    try:
+        val = json.loads(raw or "[]")  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return []
+    return val if isinstance(val, list) else []
+
+
+def _probe_name(p: dict, site: str) -> str:
+    """A site's own name, trimmed of taglines: 'Babylon Bee | Fake News…' -> 'Babylon Bee'."""
+    title = " ".join(str(p.get("title") or "").split())
+    for sep in (" | ", " – ", " — ", " - ", " · ", ": "):
+        if sep in title:
+            head = title.split(sep, 1)[0].strip()
+            if len(head) >= 3:
+                title = head
+                break
+    return title[:60] if len(title) >= 2 else site
 
 
 def _story_taste(conn: sqlite3.Connection, reader_id: str, story_ids: list[str]) -> dict[str, float]:
