@@ -160,3 +160,12 @@ def test_household_item_lifts_story_to_household(env):
     assert all(r["privacy"] == "household" for r in s)
     assert views.public_stories(env.conn, env.cfg["id"], "public") == []
     assert len(views.public_stories(env.conn, env.cfg["id"], "household")) == len(s)
+
+
+def test_untitled_item_still_makes_a_story(env):
+    """stories.title is NOT NULL: an item without title (old x bookmark, empty note) falls back."""
+    add_item(env, "u1", None, "body without any title at all")
+    embed_items(env.conn, env.cfg["id"], FakeEmbedder())
+    cluster(env.conn, env.cfg["id"], env.cfg)
+    titles = [s["title"] for s in stories_of(env).values()]
+    assert titles == ["(sin título)"]

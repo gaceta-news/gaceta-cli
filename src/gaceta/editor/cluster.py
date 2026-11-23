@@ -361,13 +361,13 @@ def cluster(conn: sqlite3.Connection, reader_id: str, cfg: dict, rebuild: bool =
         if s["story_id"] is None:
             sid = _next_story_id(conn, reader_id)
             first = conn.execute(
-                "SELECT title, published FROM items WHERE id = ?", (s["ids"][0],)
+                "SELECT title, url, published FROM items WHERE id = ?", (s["ids"][0],)
             ).fetchone()
             conn.execute(
                 "INSERT INTO stories (id, reader_id, title, summary, why_it_matters, status, "
                 "confidence, section, privacy, first_seen, last_seen, updated_at) "
                 "VALUES (?, ?, ?, NULL, NULL, 'developing', NULL, NULL, ?, ?, ?, ?)",
-                (sid, reader_id, first["title"], s_privacy, s["first_seen"], s["last_seen"], now),
+                (sid, reader_id, first["title"] or first["url"] or "(sin título)", s_privacy, s["first_seen"], s["last_seen"], now),
             )
             s["story_id"] = sid
             n_new += 1
