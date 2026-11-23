@@ -7,7 +7,11 @@ Two kinds of candidates, both shown in the paper's 'Fuentes nuevas' section:
   that carry their items.
 - suggestions: candidates the reader does not follow yet — nostr accounts the
   reader's follows keep mentioning (adapter hook ``discovery_candidates``)
-  and domains cited by >=3 distinct items of this edition's stories.
+  and sites that publish: >=2 distinct article-shaped links (a worded slug or
+  a dated path), cited by >=2 independent sources (source+author) in this
+  edition's stories, not net-disliked by the reader. Media/blob files, hash
+  or nostr-id paths, bare homepages and app pages never count as citations;
+  subdomains like media./assets./cdn. fold into the site.
 
 Only items of stories allowed at the edition's max privacy are considered
 (same filter as edition.build). Entries with a recorded decision (schema v7
@@ -19,13 +23,14 @@ from __future__ import annotations
 import re
 import sqlite3
 import time
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from . import i18n, privacy
 
 LATER_DAYS = 7
 MAX_STORIES_PER_TRIAL = 3
-MIN_CITED_ITEMS = 3
+MIN_ARTICLE_LINKS = 2      # distinct article-shaped URLs on the site
+MIN_CITING_SOURCES = 2     # independent (source, author) pairs citing it
 DEFAULT_LIMIT = 8
 
 TRIAL_FEED_PREFIX = "feed:trial-"
@@ -74,6 +79,60 @@ def _is_media_host(host: str) -> bool:
     return host.startswith("npub1") or any(
         host == s.lstrip(".") or host.endswith(s if s.startswith(".") else "." + s) or host == s
         for s in _MEDIA_HOST_SUFFIXES)
+
+
+# file links: a citation of a picture/clip/archive is never a citation of a source
+_MEDIA_EXT = {
+    "jpg", "jpeg", "png", "gif", "webp", "avif", "heic", "svg", "bmp", "ico",
+    "mp4", "mov", "webm", "mkv", "m4v", "avi", "mp3", "m4a", "ogg", "opus", "wav", "flac",
+    "pdf", "zip", "gz", "apk", "dmg", "exe", "json", "xml", "txt", "csv", "js", "css",
+}
+_HASHY_RE = re.compile(r"[0-9a-f]{32,}", re.I)          # blob/content-addressed paths
+_NOSTR_ID_RE = re.compile(r"^(npub1|nprofile1|nevent1|note1|naddr1)", re.I)
+_DATE_PATH_RE = re.compile(r"/(19|20)\d\d/(0?[1-9]|1[0-2])?")
+# leading labels that are a site's plumbing, not a separate source
+_PLUMBING_LABELS = {
+    "www", "m", "mobile", "amp", "media", "assets", "cdn", "static", "img", "images", "image",
+    "i", "files", "file", "video", "videos", "v", "gifs", "uploads", "content", "api",
+}
+
+
+def _link_kind(url: object) -> str:
+    """'article' (worded slug or dated path) | 'page' | 'root' | 'media' | 'junk'."""
+    try:
+        text = str(url or "").translate({ord(c): None for c in _INVISIBLE})
+        parts = urlsplit(text)
+        host = (parts.hostname or "").lower()
+    except ValueError:
+        return "junk"
+    if "." not in host or host.rsplit(".", 1)[-1].isdigit():
+        return "junk"  # 'https://coinjoin', bare IPs
+    path = parts.path or ""
+    segs = [s for s in path.split("/") if s]
+    if not segs:
+        return "root"
+    last = segs[-1]
+    stem, dot, ext = last.rpartition(".")
+    if dot and ext.lower() in _MEDIA_EXT:
+        return "media"
+    if any(_HASHY_RE.search(s.replace("-", "")) or _NOSTR_ID_RE.match(s) for s in segs):
+        return "media"  # content hashes, UUIDs, nostr ids: app/blob addresses
+    if _DATE_PATH_RE.search(path + "/"):
+        return "article"
+    slug = unquote(stem if dot else last)
+    words = [t for t in re.split(r"[-_+\s]+", slug) if len(t) >= 2 and t.isalpha()]
+    if len(words) >= 3:
+        return "article"  # 'the-river-came-back'; never a wallet address or an id
+    return "page"
+
+
+def _site(host: str) -> str:
+    """'assets.science.nasa.gov' -> 'science.nasa.gov'; keeps at least two labels."""
+    labels = host.split(".")
+    while len(labels) > 2 and (labels[0] in _PLUMBING_LABELS
+                               or (labels[0][:-1] in _PLUMBING_LABELS and labels[0][-1:].isdigit())):
+        labels = labels[1:]
+    return ".".join(labels)
 
 
 def _is_big_platform(host: str) -> bool:
@@ -164,27 +223,30 @@ def trial_sources(conn: sqlite3.Connection, reader_id: str, since: int, *,
         key = r["id"]
         if key in skip:
             continue
+        member_ids = [s["id"] for s in stories]
+        if not member_ids:
+            continue
+        ph = ",".join("?" * len(member_ids))
+        # only this reader's paper counts: a household collector's trial with no
+        # items in this reader's stories is someone else's trial
         n_items = conn.execute(
-            "SELECT COUNT(*) FROM items WHERE source_id = ? "
-            "AND (published IS NULL OR published >= ?)",
-            (key, since),
+            "SELECT COUNT(DISTINCT i.id) FROM story_items si JOIN items i ON i.id = si.item_id "
+            f"WHERE i.source_id = ? AND si.story_id IN ({ph}) "
+            "AND (i.published IS NULL OR i.published >= ?)",
+            (key, *member_ids, since),
         ).fetchone()[0]
         if n_items <= 0:
             continue
-        member_ids = [s["id"] for s in stories]
-        story_ids: list[str] = []
-        if member_ids:
-            ph = ",".join("?" * len(member_ids))
-            hits = {
-                h["story_id"] for h in conn.execute(
-                    "SELECT DISTINCT si.story_id FROM story_items si "
-                    "JOIN items i ON i.id = si.item_id "
-                    f"WHERE i.source_id = ? AND si.story_id IN ({ph})",
-                    (key, *member_ids),
-                )
-            }
-            story_ids = sorted(hits, key=lambda sid: -rank(
-                next(s for s in stories if s["id"] == sid)))[:MAX_STORIES_PER_TRIAL]
+        hits = {
+            h["story_id"] for h in conn.execute(
+                "SELECT DISTINCT si.story_id FROM story_items si "
+                "JOIN items i ON i.id = si.item_id "
+                f"WHERE i.source_id = ? AND si.story_id IN ({ph})",
+                (key, *member_ids),
+            )
+        }
+        story_ids = sorted(hits, key=lambda sid: -rank(
+            next(s for s in stories if s["id"] == sid)))[:MAX_STORIES_PER_TRIAL]
         out.append({
             "key": key,
             "name": (names or {}).get(str(r["name"] or ""))
@@ -220,9 +282,10 @@ def suggestions(conn: sqlite3.Connection, reader_id: str, since: int, *,
                 now: float | None = None, limit: int = DEFAULT_LIMIT,
                 lang: str = "es") -> list[dict]:
     """Candidate sources the reader does not follow: adapter candidates
-    (nostr mentions) + domains cited by >=MIN_CITED_ITEMS items of this
-    edition's stories, excluding existing source hosts, big platforms and
-    same-author substacks."""
+    (nostr mentions) + publishing sites: >=MIN_ARTICLE_LINKS article links
+    cited by >=MIN_CITING_SOURCES independent sources in this edition's
+    stories, excluding existing source sites, big platforms, media hosts,
+    same-author substacks and sites the reader's verdicts push away."""
     skip = decided_keys(conn, reader_id, now)
     out: list[dict] = []
 
@@ -244,11 +307,14 @@ def suggestions(conn: sqlite3.Connection, reader_id: str, since: int, *,
             })
 
     existing_hosts, existing_names = _existing_hosts_and_names(conn)
+    existing_sites = {_site(h) for h in existing_hosts} | existing_hosts
     stories = _allowed_stories(conn, reader_id, since, max_privacy)
+    taste = _story_taste(conn, reader_id, [s["id"] for s in stories])
     cited: dict[str, dict] = {}
     for s in stories:
         for it in conn.execute(
-            "SELECT i.id, i.url, i.body, i.author, src.kind AS src_kind FROM story_items si "
+            "SELECT i.id, i.url, i.body, i.author, i.source_id, src.kind AS src_kind "
+            "FROM story_items si "
             "JOIN items i ON i.id = si.item_id LEFT JOIN sources src ON src.id = i.source_id "
             "WHERE si.story_id = ?",
             (s["id"],),
@@ -257,40 +323,71 @@ def suggestions(conn: sqlite3.Connection, reader_id: str, since: int, *,
             # video descriptions are mostly sponsors/affiliate/tip links: only text
             # sources' bodies count as citations
             urls = [it["url"]] + ([] if it["src_kind"] == "youtube" else _LINK_RE.findall(body))
-            seen_hosts: set[str] = set()
+            citer = (str(it["source_id"] or ""), _norm(it["author"]))
             for url in urls:
                 host = _host(url)
-                if not host or host in seen_hosts:
+                if not host:
                     continue
-                seen_hosts.add(host)
-                d = cited.setdefault(host, {"items": set(), "stories": set(), "authors": set(),
+                kind = _link_kind(url)
+                if kind in ("media", "junk"):
+                    continue  # a picture or a blob is not a citation of a source
+                site = _site(host)
+                d = cited.setdefault(site, {"articles": set(), "stories": set(), "citers": set(),
                                             "url": str(url)})
-                d["items"].add(it["id"])
-                d["authors"].add(_norm(it["author"]))
+                d["citers"].add(citer)
                 d["stories"].add(s["id"])
+                if kind == "article":
+                    d["articles"].add(str(url).split("#", 1)[0].rstrip("/"))
     domain_out: list[dict] = []
-    for host, d in cited.items():
-        key = f"host:{host}"
-        if key in skip or len(d["items"]) < MIN_CITED_ITEMS:
+    for site, d in cited.items():
+        key = f"host:{site}"
+        if key in skip:
             continue
-        if host in existing_hosts or _is_big_platform(host) or _is_media_host(host):
+        if len(d["articles"]) < MIN_ARTICLE_LINKS or len(d["citers"]) < MIN_CITING_SOURCES:
+            continue  # needs published pieces AND more than one voice pointing at them
+        if site in existing_sites or _is_big_platform(site) or _is_media_host(site):
             continue
-        if host == "substack.com" or host.endswith(".substack.com"):
+        if site == "substack.com" or site.endswith(".substack.com"):
             # substack only when it is NOT an author already followed
             token = _substack_token(d["url"])
             if token is None or _norm(token) in existing_names:
                 continue
+        liking = sum(taste.get(sid, 0.0) for sid in d["stories"])
+        if liking < 0:
+            continue  # cited mostly in stories the reader pushed away
         domain_out.append({
-            "key": key, "name": host, "kind": "site",
+            "key": key, "name": site, "kind": "site",
             "reason": i18n.t(lang, "discovery.cited", len(d["stories"])),
-            "url": f"https://{host}",
-            "_n": len(d["stories"]),
+            "url": f"https://{site}",
+            "_rank": (liking, len(d["citers"]), len(d["stories"])),
         })
-    domain_out.sort(key=lambda e: (-e["_n"], e["key"]))
+    domain_out.sort(key=lambda e: (tuple(-x for x in e["_rank"]), e["key"]))
     domain_out = domain_out[:limit]  # keep the section calm; best-cited first
     for e in domain_out:
-        del e["_n"]
+        del e["_rank"]
     return out + domain_out
+
+
+def _story_taste(conn: sqlite3.Connection, reader_id: str, story_ids: list[str]) -> dict[str, float]:
+    """Net reaction weight per story (taste.KIND_WEIGHTS; 'open' left out: it is
+    attention, not a verdict). Missing reactions table → no signal."""
+    from .editor.taste import KIND_WEIGHTS
+    out: dict[str, float] = {}
+    if not story_ids:
+        return out
+    ph = ",".join("?" * len(story_ids))
+    try:
+        rows = conn.execute(
+            f"SELECT story_id, kind FROM reactions WHERE reader_id = ? AND story_id IN ({ph})",
+            (reader_id, *story_ids),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return out
+    for r in rows:
+        if r["kind"] == "open":
+            continue
+        out[r["story_id"]] = out.get(r["story_id"], 0.0) + KIND_WEIGHTS.get(r["kind"], 0.0)
+    return out
 
 
 def discovery_block(conn: sqlite3.Connection, reader_id: str, cfg: dict, since: int, *,
