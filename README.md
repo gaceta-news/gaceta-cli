@@ -280,7 +280,7 @@ public-only renderer link to your rendered paper. See
 
 ## Status
 
-Early (v0.2) and used every day by its authors. Known gaps:
+Beta (v0.3.0b1, a GitHub pre-release) and used every day by its authors. Known gaps:
 
 - Small local models also overstate claims now and then. Every card links its sources: check strong
   claims there, or use a bigger model.
@@ -330,6 +330,22 @@ uv run --with pytest pytest -q        # or: make check
 ```
 
 Tests use synthetic fixtures and fake models only, with no network.
+
+### Contributing and releases
+
+- `main` is protected: every change arrives by pull request, the `test (3.12)` and `test (3.13)` checks
+  must pass, and PRs are merged by **rebase** only (no merge or squash commits). A red `main` stops the line.
+- The version lives only in `src/gaceta/__init__.py` (hatch reads it; packaging parity checks the rest).
+  Bump it in a PR.
+- Release from a clean, green `main` only:
+  ```bash
+  make release-dry V=0.3.0b2   # every gate, then deletes the local tag
+  make release V=0.3.0b2       # same gates, pushes v0.3.0b2, creates the GitHub Release
+  ```
+  `scripts/release.sh` refuses unless CI passed on that exact commit, `make check` and the release smoke
+  (clean wheel + offline edition) pass, and `scripts/check-parity.py --release` agrees with the tag.
+  `aN`/`bN`/`rcN` versions become pre-releases; the skill archives in `packaging/dist/archives/` are attached.
+  Every `v*` tag also runs `.github/workflows/release-checks.yml`. Manual checklist: [docs/release/pilot.md](docs/release/pilot.md).
 
 `src/gaceta/assets/desk/` ships the desk packet: a redistributable synthetic sample of the
 pipeline's input — eight invented EN/ES documents over three days (one official decision, five
