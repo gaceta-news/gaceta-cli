@@ -165,6 +165,15 @@ h1, h2, h3, h4 {
 }
 .lead .summary { font-size: 1.12rem; }
 .meta-part { display: inline-block; margin-right: 1em; }
+.stake-label {
+  margin: 0.6rem 0 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.summary.stake { margin-top: 0.15rem; }
 .story-update { margin: 0.65rem 0 0; padding-left: 0.7rem; border-left: 3px solid var(--accent); }
 .update-label { margin: 0; color: var(--accent); font-size: 0.75rem; font-weight: 700; }
 .story-update .summary { margin-top: 0.15rem; }
@@ -630,12 +639,15 @@ def _folio_row(folio: dict, edition: dict) -> str:
 
 
 def _dateline_row(folio: dict, edition: dict, reader_name: str) -> str:
-    """One plain story count, without ranking denominators or pipeline totals."""
+    """Front-page stories vs the day's total: what is fresh for you today."""
     stories = edition.get("stories") or {}
     left = (f'<span class="slot"><span class="reader">{_esc(_t("dateline.for", name=reader_name))}</span></span>'
             if reader_name else "")
     total = _count(folio.get("stories_total")) or len(stories)
-    count = _esc(_t("dateline.story_count", n=total))
+    portada_n = _count(folio.get("portada"))
+    if portada_n is None:
+        portada_n = len([s for s in edition.get("portada") or [] if s in stories])
+    count = _esc(_t("dateline.stories", n=portada_n, total=total))
     return (f'<p class="dateline-row">{left}'
             f'<span class="slot slot-right">{count}</span></p>')
 
@@ -1013,6 +1025,7 @@ def _render_story(story_id: str, story: dict, *, lead: bool = False,
         parts.append(since)
 
     if story.get("why_it_matters"):
+        parts.append(f'<p class="stake-label">{_esc(_t("story.why"))}</p>')
         parts.append(f'<p class="summary stake">{_esc(story["why_it_matters"])}</p>')
 
     corrections = story.get("corrections") or []

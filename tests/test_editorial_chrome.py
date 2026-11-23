@@ -41,17 +41,23 @@ def test_reason_catalogs_and_base_scoring_do_not_expose_score_arithmetic(lang):
         assert "Pat Writer" in i18n.t(lang, key, author="Pat Writer")
 
 
-def test_stake_is_an_escaped_plain_paragraph_and_null_renders_nothing():
+def test_stake_keeps_a_quiet_label_and_null_renders_nothing():
     edition = load_edition()
     for story in edition["stories"].values():
         story["why_it_matters"] = None
-    assert 'class="summary stake"' not in render(edition, "private")
+    bare = render(edition, "private")
+    assert '<p class="summary stake">' not in bare and '<p class="stake-label">' not in bare
     story = next(iter(edition["stories"].values()))
     story["why_it_matters"] = "Your deadline is Friday <script>"
     doc = render(edition, "private")
     assert '<p class="summary stake">Your deadline is Friday &lt;script&gt;</p>' in doc
+    assert "Por qué te importa" in doc
+    # Quiet rubric, not a shouty box: no aside, no rail, muted ink only.
     assert 'class="why"' not in doc and "why-label" not in doc
-    assert "Por qué te importa" not in doc
+    css = doc.split("<style>", 1)[1].split("</style>", 1)[0]
+    label_css = css.split(".stake-label", 1)[1].split("}", 1)[0]
+    assert "var(--muted)" in label_css
+    assert "border" not in label_css and "background" not in label_css
 
 
 def test_floating_bars_are_solid_with_hairline_borders():
@@ -66,10 +72,14 @@ def test_floating_bars_are_solid_with_hairline_borders():
 
 def test_cached_folio_hash_is_replaced_and_masthead_has_no_dot_chains():
     edition = copy.deepcopy(load_edition())
-    edition["folio"] = {"code": "ABC123", "items_total": 99, "voices": 45}
+    edition["folio"] = {"code": "ABC123", "items_total": 99, "voices": 45, "portada": 6,
+                       "stories_total": 216}
     edition["next_update"] = "2026-11-17T14:30:00-05:00"
     doc = render(edition, "private")
     assert "No. 20261117" in doc and "ABC123" not in doc
     masthead = doc.split('<header class="masthead">', 1)[1].split('</header>', 1)[0]
     assert " · " not in masthead
     assert "ítems" not in masthead and "voces" not in masthead
+    # Front-page count vs the day's stories, as one plain slot.
+    assert "6 de 216 historias" in masthead
+    assert "historias</span>" in masthead  # exactly one stories slot
