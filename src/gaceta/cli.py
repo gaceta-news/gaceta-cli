@@ -128,7 +128,7 @@ provider = "fake"
 #                                          # servers without auth (Ollama /v1, llama.cpp)
 # allow_private = false                   # true only for providers you trust
 #                                          # with the reader's private notes
-# headers = { "User-Agent" = "gaceta/0.3", "x-opencode-session" = "${uuid}" }
+# headers = {{ "User-Agent" = "gaceta/0.3", "x-opencode-session" = "${{uuid}}" }}
 # preflight = true                        # probe the primary before gaceta write
 # [[llm.editor.fallbacks]]                # tried in order when the primary is down
 # base_url = "https://api.example-b.test/v1"   # (429/5xx/auth/unreachable)
