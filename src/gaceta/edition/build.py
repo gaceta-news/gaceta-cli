@@ -109,23 +109,23 @@ def _link_keys(url) -> tuple[str, tuple[str, str, str]] | None:
 def _score_and_reasons(s: dict, end: int, *, sites: int | None = None,
                        lang: str = "es") -> tuple[float, list[str]]:
     """Base score + short reasons (in the reader's language) for each component."""
-    def r(key: str, v: float, **kw) -> str:
-        return i18n.t(lang, key, v=f"{v:+.1f}", **kw)
+    def r(key: str, **kw) -> str:
+        return i18n.t(lang, key, **kw)
     coverage = math.log1p(s["n_items"] if sites is None else max(1, min(sites, 4)))
     told = 1.5 if s["n_told"] > 0 else 0.0
     rec = _recency(s["last_seen"], end)
     written = 0.5 if s["summary"] else 0.0
     reasons: list[str] = []
     if sites is None and s["n_items"] >= 2:
-        reasons.append(r("reason.many_sources", coverage))
+        reasons.append(r("reason.many_sources"))
     if sites is not None and sites >= 2:
-        reasons.append(r("reason.sites", coverage, n=sites))
+        reasons.append(r("reason.sites", n=sites))
     if told:
-        reasons.append(r("reason.told", told))
+        reasons.append(r("reason.told"))
     if rec >= 0.05:
-        reasons.append(r("reason.recent", rec))
+        reasons.append(r("reason.recent"))
     if written:
-        reasons.append(r("reason.written", written))
+        reasons.append(r("reason.written"))
     return coverage + told + rec + written, reasons
 
 
@@ -523,7 +523,7 @@ def build_edition(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
                 p = portada_pen.get(s["id"])
                 if p:
                     s["_reasons"] = s["_reasons"] + [
-                        i18n.t(lang, "reason.portada_recent", v=f"-{p:.1f}")]
+                        i18n.t(lang, "reason.portada_recent")]
         front_rows = sorted(
             (s for s in rows if s["id"] not in must_rest),
             key=lambda s: s["_score"] - portada_pen.get(s["id"], 0.0), reverse=True)
@@ -585,8 +585,8 @@ def build_edition(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
     nu = next_update(edition["built_at"], cfg.get("schedule"))
     if nu:
         edition["next_update"] = nu
-    # folio + instrument (roadmap 11c): honest furniture over the included
-    # stories only — code is a fingerprint of the input, counts of the day.
+    # Date-based issue number needs no mutable per-reader counter. Keep counts
+    # in the snapshot for tools; only the story total belongs in the masthead.
     member_ids = sorted({str(it["item_id"]) for sid in stories
                          for it in items_by_story.get(sid, ())})
     voices: set[str] = set()
@@ -599,9 +599,8 @@ def build_edition(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
             a = str(r["author"]).strip()
             if a:
                 voices.add(a)
-    h = hashlib.sha1("\x00".join(member_ids).encode("utf-8"))
     edition["folio"] = {
-        "code": h.hexdigest()[:6].upper(),
+        "code": day.strftime("%Y%m%d"),
         "date_label": i18n.long_date(lang, day),
         "lang": lang,
         "window_end": datetime.fromtimestamp(built_ts).astimezone().strftime("%H:%M"),

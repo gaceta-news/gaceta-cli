@@ -180,7 +180,7 @@ def adjustments(conn: sqlite3.Connection, reader_id: str, cfg: dict,
                 continue  # fully faded reaction: no boost, no stale reason line
             word = i18n.t(lang, "taste.times", 2 if n > 1.5 else 1)
             adj.add(sid, direct, i18n.t(lang, "taste.gave", label=kind_label(lang, kind),
-                                       count=f"{n:.0f}", times=word, v=f"{direct:+.1f}"))
+                                       count=f"{n:.0f}", times=word))
 
     # --- author affinity (over reacted stories' authors; applied to candidates)
     authors_by_story = _story_authors(conn, [r["story_id"] for r in reactions])
@@ -195,10 +195,10 @@ def adjustments(conn: sqlite3.Connection, reader_id: str, cfg: dict,
     for a, net in author_net.items():
         if net < 0:
             d = max(AUTHOR_NEG_STEP * net, -AUTHOR_NEG_CAP)  # net negative → −0.5 each, cap −1.5
-            author_delta[a] = (d, i18n.t(lang, "taste.author_neg", v=f"{d:+.1f}"))
+            author_delta[a] = (d, i18n.t(lang, "taste.author_neg", author=a))
         elif net > 0:
             d = min(AUTHOR_POS_STEP * net, AUTHOR_POS_CAP)
-            author_delta[a] = (d, i18n.t(lang, "taste.author_pos", v=f"{d:+.1f}"))
+            author_delta[a] = (d, i18n.t(lang, "taste.author_pos", author=a))
     if author_delta and items_by_story:
         cand_authors = _story_authors(conn, list(items_by_story.keys()))
         for sid, authors in cand_authors.items():
@@ -243,5 +243,5 @@ def adjustments(conn: sqlite3.Connection, reader_id: str, cfg: dict,
                         label = i18n.t(lang, "taste.sim_pos")
                     else:
                         label = i18n.t(lang, "taste.sim_neg")
-                    adj.add(cand, transfer, f"{label} ({transfer:+.1f})")
+                    adj.add(cand, transfer, label)
     return adj
