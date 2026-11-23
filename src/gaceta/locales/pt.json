@@ -129,7 +129,10 @@
     "conditions.live": "ao vivo · {time}",
     "conditions.stale": "último dado {time}",
     "reason.portada_recent": "Já esteve na primeira página ({v})",
-    "reason.portada_rest": "Liderou as primeiras páginas recentes; hoje descansa"
+    "reason.portada_rest": "Liderou as primeiras páginas recentes; hoje descansa",
+    "stale.today": "Edição das {time}",
+    "stale.yesterday": "Edição de ontem {time}",
+    "stale.date": "Edição de {date}"
   },
   "js": {
     "src.follow_done": "✓ Você vai seguir {name}",
@@ -191,6 +194,9 @@
     "fresh.aria": "Há uma edição mais recente: recarregar",
     "conditions.stale": "último dado {time}",
     "boot.retry": "Não consegui trazer o que você já viu — tentando de novo…",
-    "boot.offline": "Sem conexão com a gaceta: tudo aparece como novo"
+    "boot.offline": "Sem conexão com a gaceta: tudo aparece como novo",
+    "stale.today": "Edição das {time}",
+    "stale.yesterday": "Edição de ontem {time}",
+    "stale.date": "Edição de {date}"
   }
 }

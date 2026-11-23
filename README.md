@@ -136,6 +136,7 @@ never in code.
 | `[embed]`, `[llm.editor]` | providers: `ollama`, `openai` (compatible), or `fake` |
 | `[cluster]` | `threshold` (cosine "same story") and `window_days` |
 | `[[sections]]` | named sections matched by source kind, source-id prefix or keywords |
+| `[schedule]` | release slots for the served page: `every_hours` (2), `start_hour` (6), `end_hour` (22), `minute` (30) → "próxima ~HH:MM"; `stale_after_h` (14) → when the banner below appears |
 | `[privacy]` | canary terms pinned to `private` / `household` |
 | `[conditions.<name>]` | optional boxes of moving numbers (weather, a level), see below |
 
@@ -260,6 +261,12 @@ where a health check can read it without parsing logs:
   the status file, `built_at` unchanged) when no item was ingested and no story changed
   since the previous edition's build — a scheduled run on a quiet day costs one query,
   not a build. Checked before `--force`.
+- The rendered page tells readers when it is late: once the edition is older than
+  `[schedule] stale_after_h` hours (default 14) a small, calm banner appears above the
+  masthead — "Edición de las 09:30" when built today, "Edición de ayer 23:30",
+  "Edición del <fecha>" when older (localized; English, Portuguese, French, German and
+  Italian too). Static exports bake it; the served page refreshes it from `/api/state`'s
+  `built_at`, so a paper left open admits its age as hours pass.
 
 ## Development
 

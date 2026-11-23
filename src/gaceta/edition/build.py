@@ -38,6 +38,20 @@ WINDOW_DAYS = 14
 PORTADA_SIZE = 6
 SECTION_CAP = 30  # deeper sections: hiding seen stories reveals more below
 MAX_THUMBS = 4  # lead + up to 3 more
+# [schedule] stale_after_h (hours): past this age the rendered page shows its
+# calm "when was this built" banner (render/html.py); 14 covers a paper built
+# on a 2 h rhythm going quiet for most of a day without crying wolf.
+DEFAULT_STALE_AFTER_H = 14
+
+
+def stale_after_h(cfg: dict) -> int:
+    """The banner threshold from [schedule] stale_after_h (default 14)."""
+    try:
+        hours = int((cfg.get("schedule") or {}).get("stale_after_h",
+                                                    DEFAULT_STALE_AFTER_H))
+    except (TypeError, ValueError):
+        return DEFAULT_STALE_AFTER_H
+    return hours if 1 <= hours <= 24 * 31 else DEFAULT_STALE_AFTER_H
 # section ids stay stable across languages (links, closed-state); titles follow ui lang
 TOLD_SECTION = ("lo-que-te-conte", "section.told")
 REST_SECTION = ("otros", "section.rest")
@@ -563,6 +577,7 @@ def build_edition(conn: sqlite3.Connection, reader_id: str, cfg: dict, *,
             built_ts
         ).astimezone().isoformat(timespec="seconds"),
         "max_privacy": max_privacy,
+        "stale_after_h": stale_after_h(cfg),
         "portada": portada,
         "sections": [s for s in sections if s["stories"] or s["id"] != REST_SECTION[0]],
         "stories": stories,

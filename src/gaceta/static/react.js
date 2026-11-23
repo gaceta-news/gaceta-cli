@@ -907,6 +907,38 @@
       });
   }
 
+  /* ------------------------------------------------------------ stale banner
+   * The renderer bakes a calm 'when was this edition built' line into the page,
+   * hidden while it is fresh. The server knows better once we're here:
+   * /api/state carries the reader's current edition built_at, so an open page
+   * re-words (and re-hides) the banner as the paper ages under it. */
+  function staleBanner(builtIso) {
+    var el = document.querySelector(".stale-banner");
+    if (!el || !builtIso) return;
+    var h = parseFloat(el.getAttribute("data-stale-h"));
+    if (!(h > 0)) h = 14;
+    var built = new Date(builtIso);
+    if (isNaN(built.getTime())) { el.hidden = true; return; }
+    var now = new Date();
+    if ((now - built) / 3600000 <= h) { el.hidden = true; return; }
+    var loc = L10N._locale || undefined;
+    function hhmm() {
+      try { return built.toLocaleTimeString(loc, { hour: "2-digit", minute: "2-digit" }); }
+      catch (e) { return built.toTimeString().slice(0, 5); }
+    }
+    var days = Math.round((Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())
+      - Date.UTC(built.getFullYear(), built.getMonth(), built.getDate())) / 86400000);
+    if (days <= 0) el.textContent = tr("stale.today", { time: hhmm() });
+    else if (days === 1) el.textContent = tr("stale.yesterday", { time: hhmm() });
+    else {
+      try {
+        el.textContent = tr("stale.date", { date: built.toLocaleDateString(loc,
+          { day: "numeric", month: "long", year: "numeric" }) });
+      } catch (e) { el.textContent = tr("stale.date", { date: builtIso.slice(0, 10) }); }
+    }
+    el.hidden = false;
+  }
+
   /* ------------------------------------------------------------ cross-device sync
    * The server is the only truth (seen, verdicts, saves per person). A page left
    * open on the PC must catch up with what the phone did meanwhile, so state is
@@ -922,7 +954,8 @@
 
   function fetchState() {
     return fetch("/api/state?reader=" + encodeURIComponent(reader) +
-                 (date ? "&date=" + date : "") + "&by=" + encodeURIComponent(by),
+                 (date ? "&date=" + date : "") +
+                 (by ? "&by=" + encodeURIComponent(by) : ""),
                  { cache: "no-store" })
       .then(function (r) { return r.ok ? r.json() : null; })
       .catch(function () { return null; });
@@ -993,6 +1026,7 @@
       }
     }
     freshCheck(st.revs);
+    staleBanner(st.built_at);
   }
 
   /* the edition behind this page was rebuilt with new or changed stories */
@@ -1058,6 +1092,7 @@
       }
       sourceVerdicts(st);
       arrangeSections();
+      staleBanner(st.built_at);
     });
   }
 
@@ -1065,7 +1100,13 @@
 
   function main() {
     css();
-    if (!by) { byBar(); return; }
+    if (!by) {
+      byBar();
+      /* no reading person chosen: still refresh the stale banner once, so a
+       * served page left open says how old the edition really is */
+      fetchState().then(function (st) { if (st) staleBanner(st.built_at); });
+      return;
+    }
     topBar();
     boot();
     document.addEventListener("visibilitychange", function () { sync(true); });

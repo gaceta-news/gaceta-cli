@@ -16,6 +16,7 @@ from datetime import date, datetime, tzinfo
 from urllib.parse import urlsplit
 
 from .. import i18n, privacy
+from ..edition.build import DEFAULT_STALE_AFTER_H
 from . import icons
 from ..media import YOUTUBE_ID_RE
 
@@ -560,6 +561,18 @@ a.src-name:hover { text-decoration-thickness: 2px; }
   letter-spacing: 0.02em;
 }
 .save-meta .badge { margin-right: 0.3rem; }
+.stale-banner {
+  margin: 1.1rem 0 0;
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--card);
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.85rem;
+  letter-spacing: 0.02em;
+}
+.stale-banner[hidden] { display: none; }
 """
 
 
@@ -649,6 +662,38 @@ def _dateline_row(folio: dict, edition: dict, reader_name: str) -> str:
              if voices is not None else "")
     return (f'<p class="dateline-row">{left}'
             f'<span class="slot slot-mid">{mid}</span>{right}</p>')
+
+
+def _stale_banner(edition: dict, now: datetime) -> str:
+    """The calm 'when was this built' line above the masthead.
+
+    Baked at render time from the edition's own built_at (so static exports
+    carry it) and always in the DOM — hidden while the edition is younger than
+    its [schedule] stale_after_h hours, shown once it is older, with the text
+    the age calls for: built today → "Edición de las HH:MM", yesterday →
+    "Edición de ayer HH:MM", older → "Edición del <fecha>". data-built /
+    data-stale-h let the served page re-word and re-hide it from /api/state's
+    built_at as the page ages under an open tab (react.js)."""
+    try:
+        built = datetime.fromisoformat(str(edition.get("built_at") or ""))
+    except ValueError:
+        return ""
+    if built.tzinfo is None:
+        built = built.astimezone()
+    try:
+        threshold = int(edition.get("stale_after_h") or DEFAULT_STALE_AFTER_H)
+    except (TypeError, ValueError):
+        threshold = DEFAULT_STALE_AFTER_H
+    days = (now.date() - built.date()).days
+    if days <= 0:
+        key, kw = "stale.today", {"time": built.strftime("%H:%M")}
+    elif days == 1:
+        key, kw = "stale.yesterday", {"time": built.strftime("%H:%M")}
+    else:
+        key, kw = "stale.date", {"date": i18n.day_month_year(_LANG.get(), built.date())}
+    hidden = " hidden" if (now - built).total_seconds() <= threshold * 3600 else ""
+    return (f'<p class="stale-banner" role="status" data-built="{_esc(edition.get("built_at"))}"'
+            f' data-stale-h="{threshold}"{hidden}>{_esc(_t(key, **kw))}</p>')
 
 
 def _instrument_line(instrument: dict, max_level: str) -> str:
@@ -1269,11 +1314,14 @@ _YT_JS = (
 )
 
 
-def render(edition: dict, max_level: str, media_prefix: str = "../media/") -> str:
+def render(edition: dict, max_level: str, media_prefix: str = "../media/",
+           now: object = None) -> str:
     """Render one edition snapshot as a self-contained HTML document.
 
     ``media_prefix`` resolves edition ``media/<file>`` paths for this output
     location (site/<reader>/index.html uses the default ``../media/``).
+    ``now`` (datetime or ISO string) is the freshness clock for the stale
+    banner; the real clock is used when omitted.
 
     Raises ``ValueError`` if any story's privacy is above ``max_level`` (unknown
     privacy labels count as ``private``).
@@ -1283,18 +1331,29 @@ def render(edition: dict, max_level: str, media_prefix: str = "../media/") -> st
         stamp = datetime.fromisoformat(str(edition.get("built_at") or ""))
     except ValueError:
         stamp = None
+    if now is None:
+        clock = datetime.now().astimezone()
+    elif isinstance(now, datetime):
+        clock = now if now.tzinfo is not None else now.astimezone()
+    else:
+        try:
+            clock = datetime.fromisoformat(str(now))
+        except ValueError:
+            clock = datetime.now().astimezone()
+    if clock.tzinfo is None:
+        clock = clock.astimezone()
     token = _LANG.set(i18n.reader_lang(reader))
     offset_token = _EDITION_OFFSET.set(stamp.tzinfo if stamp else None)
     built_token = _BUILT_AT.set(int(stamp.timestamp()) if stamp and stamp.tzinfo else None)
     try:
-        return _render(edition, max_level, media_prefix)
+        return _render(edition, max_level, media_prefix, clock)
     finally:
         _BUILT_AT.reset(built_token)
         _EDITION_OFFSET.reset(offset_token)
         _LANG.reset(token)
 
 
-def _render(edition: dict, max_level: str, media_prefix: str) -> str:
+def _render(edition: dict, max_level: str, media_prefix: str, now: datetime) -> str:
     stories = edition.get("stories") or {}
 
     for story_id, story in stories.items():
@@ -1335,6 +1394,9 @@ def _render(edition: dict, max_level: str, media_prefix: str) -> str:
         '<div class="wrap">',
         '<header class="masthead">',
     ]
+    banner = _stale_banner(edition, now)
+    if banner:
+        parts.insert(parts.index('<div class="wrap">') + 1, banner)
     ear = _render_ear(edition, max_level)
     nameplate = (f'<div class="nameplate"><h1>{_esc(paper)}</h1>{ear}</div>' if ear
                  else f"<h1>{_esc(paper)}</h1>")
