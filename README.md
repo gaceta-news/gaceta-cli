@@ -204,7 +204,9 @@ translate the values and keep the keys and `{placeholders}`. The tests check eve
 
 ## Source adapters
 
-Built in: `rss` (RSS 2.0, RSS 1.0, Atom, YouTube channel feeds), `nostr_wot`, and `sqlite`, an
+Built in: `rss` (RSS 2.0, RSS 1.0, Atom, YouTube channel feeds; feeds are streamed, not
+buffered — reading stops after `max_entries` (default 200) entries, so a huge feed is cut
+off newest-first instead of rejected for its size), `nostr_wot`, and `sqlite`, an
 example adapter for collector-style databases.
 
 Anything else is a plugin. Write a class with a `name` and an `items(since=None)` method that yields

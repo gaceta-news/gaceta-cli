@@ -5,6 +5,9 @@ Reader config:
     [sources.rss]
     max_age_days = 14        # older entries are ignored (default 14)
     max_items = 20           # per feed per run, newest first (default 20)
+    max_entries = 200        # entries read per feed per fetch, in feed order (which is
+                             # newest first); the download stops there (default 200,
+                             # 0 = the whole feed, ceiling still applies)
     [[sources.rss.feeds]]
     id = "mongabay-latam"    # reader-local slug for section rules and logging
     name = "Mongabay Latam"
@@ -18,6 +21,11 @@ Reader config:
 - Read-only and polite: one GET per feed per run, short timeout, a failing feed is reported
   and skipped, never fatal. stdlib only (urllib + xml.etree). Fetches and redirects pass the
   same SSRF guard as media (http(s) only, hosts must resolve to global addresses).
+- Huge feeds stream, never buffer: entries are pull-parsed as bytes arrive and the download
+  stops after max_entries (feed order is newest first), so a multi-megabyte archive is cut
+  off, not rejected for size. A hard safety ceiling (FEED_MAX_BYTES, 64 MB) still fails a
+  feed that streams past it without enough entries, and memory tracks one entry, not the
+  whole feed.
 - Identity comes from the canonical feed URL, NOT the configured slug: source id is
   'rss:<sha12(url)>' and item ids hash (feed url, guid). `items` is a shared table — two
   readers using the same slug for different feeds must never collide. The slug stays a
@@ -38,10 +46,11 @@ import sys
 import time
 import urllib.request
 import xml.etree.ElementTree as ET
+from io import BytesIO
 from email.utils import parsedate_to_datetime
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Callable, Iterator, Protocol
 
 from urllib.parse import urlsplit
 
@@ -50,6 +59,11 @@ from ..transcripts import Transcript, video_id
 from .base import RawItem, RawSource
 
 UA = "Mozilla/5.0 (compatible; gaceta-rss/0.1; personal newspaper)"
+# The entry cap usually stops a read long before the ceiling matters, but a feed that
+# streams past this many bytes without enough complete entries (or inside one huge
+# entry) is still failed instead of being allowed to eat memory.
+FEED_MAX_BYTES = 64 * 1024 * 1024
+DEFAULT_MAX_ENTRIES = 200
 BODY_CAP = 8000
 _TAG = re.compile(r"<[^>]+>")
 _NS_TAG = re.compile(r"(<\/?)[A-Za-z_][\w.-]*:")
@@ -131,37 +145,93 @@ def _atom_link(entry: ET.Element) -> str | None:
     return best
 
 
-def parse_feed(xml_bytes: bytes) -> list[dict]:
-    """RSS 2.0 / RSS 1.0 / Atom → [{guid, title, url, published, body, author}] (feed order)."""
-    root = ET.fromstring(xml_bytes)
+def _entry_dict(e: ET.Element) -> dict | None:
+    """One item/entry element → row dict, or None if it carries no identity at all."""
+    is_atom = _local(e.tag) == "entry"
+    title = strip_html(_text(_direct(e, "title")))
+    if is_atom:
+        url = _atom_link(e)
+        guid = _text(_direct(e, "id")) or url
+        published = _parse_date(_text(_direct(e, "published")) or _text(_direct(e, "updated")))
+        # never `el or el`: an Element with no children is falsy
+        body = _body_text(_direct(e, "content")) or _body_text(_direct(e, "summary"))
+        if not body:   # YouTube: media:group/media:description
+            body = _text(_child(e, "description"))
+        author = _text(_child(e, "name")) or None
+    else:
+        url = _text(_direct(e, "link")) or None
+        guid = _text(_direct(e, "guid")) or url
+        published = _parse_date(_text(_direct(e, "pubDate")) or _text(_direct(e, "date")))
+        enc = _direct(e, "encoded")             # content:encoded beats description
+        body = _text(enc) or _text(_direct(e, "description"))
+        author = _text(_direct(e, "creator")) or _text(_direct(e, "author")) or None
+    if not (guid or url or title):
+        return None
+    return {
+        "guid": guid or f"{title}|{published}", "title": title or None, "url": url,
+        "published": published, "body": strip_html(body)[:BODY_CAP] or None, "author": author,
+    }
+
+
+class _Reader(Protocol):
+    """The slice of file-like the pull parser needs: iterparse reads fixed chunks."""
+
+    def read(self, size: int = -1, /) -> bytes: ...
+
+
+class _CountingReader:
+    """File-like wrapper enforcing the hard byte ceiling on a streaming read."""
+
+    def __init__(self, fp: _Reader, max_bytes: int):
+        self.fp = fp
+        self.max_bytes = max_bytes
+        self.seen = 0
+
+    def read(self, size: int = -1) -> bytes:
+        data = self.fp.read(size)
+        self.seen += len(data)
+        if self.seen > self.max_bytes:
+            raise MediaError(f"feed passed the {self.max_bytes} byte safety ceiling")
+        return data
+
+
+def _stream_entries(readable: _Reader, max_entries: int) -> list[dict]:
+    """Pull-parse a feed from any file-like, in feed order (RSS 1.0 items sit at
+    root level too, so entries are matched at any depth, as the old whole-document
+    walk did). Entries are collected as they complete and parsing stops once
+    max_entries (> 0) have been read — feeds publish newest first, so a huge feed
+    is cut off instead of buffered whole and rejected. Closed elements outside a
+    still-open entry are dropped from the tree as they finish, so memory tracks
+    one entry (bounded by the byte ceiling), never the feed."""
     out: list[dict] = []
-    entries = [e for e in root.iter() if _local(e.tag) in ("item", "entry")]
-    for e in entries:
-        is_atom = _local(e.tag) == "entry"
-        title = strip_html(_text(_direct(e, "title")))
-        if is_atom:
-            url = _atom_link(e)
-            guid = _text(_direct(e, "id")) or url
-            published = _parse_date(_text(_direct(e, "published")) or _text(_direct(e, "updated")))
-            # never `el or el`: an Element with no children is falsy
-            body = _body_text(_direct(e, "content")) or _body_text(_direct(e, "summary"))
-            if not body:   # YouTube: media:group/media:description
-                body = _text(_child(e, "description"))
-            author = _text(_child(e, "name")) or None
-        else:
-            url = _text(_direct(e, "link")) or None
-            guid = _text(_direct(e, "guid")) or url
-            published = _parse_date(_text(_direct(e, "pubDate")) or _text(_direct(e, "date")))
-            enc = _direct(e, "encoded")             # content:encoded beats description
-            body = _text(enc) or _text(_direct(e, "description"))
-            author = _text(_direct(e, "creator")) or _text(_direct(e, "author")) or None
-        if not (guid or url or title):
+    stack: list[ET.Element] = []
+    open_entries = 0
+    for event, elem in ET.iterparse(readable, events=("start", "end")):
+        if event == "start":
+            if _local(elem.tag) in ("item", "entry"):
+                open_entries += 1
+            stack.append(elem)
             continue
-        out.append({
-            "guid": guid or f"{title}|{published}", "title": title or None, "url": url,
-            "published": published, "body": strip_html(body)[:BODY_CAP] or None, "author": author,
-        })
+        stack.pop()
+        if _local(elem.tag) in ("item", "entry"):
+            open_entries -= 1
+            row = _entry_dict(elem)
+            if row is not None:
+                out.append(row)
+        if open_entries == 0 and stack:
+            stack[-1].remove(elem)   # spent shell: nothing reads it again
+        if max_entries > 0 and len(out) >= max_entries:
+            break
     return out
+
+
+def parse_feed(xml_bytes: bytes) -> list[dict]:
+    """RSS 2.0 / RSS 1.0 / Atom → [{guid, title, url, published, body, author}] (feed order).
+
+    Whole-document form for input the caller already holds and has bounded (offline
+    feed files, probe-sized fetches); network feeds go through _fetch_entries, which
+    also caps the entries read."""
+    return _stream_entries(BytesIO(xml_bytes), 0)
 
 
 class _GuardedRedirect(urllib.request.HTTPRedirectHandler):
@@ -215,11 +285,19 @@ class _GuardedHTTPSHandler(urllib.request.HTTPSHandler):
 _opener = urllib.request.build_opener(_GuardedHTTPHandler, _GuardedHTTPSHandler, _GuardedRedirect)
 
 
-def _fetch(url: str, timeout: float = 20.0) -> bytes:
+def _fetch_entries(url: str, max_entries: int = DEFAULT_MAX_ENTRIES,
+                   max_bytes: int = FEED_MAX_BYTES, timeout: float = 20.0) -> list[dict]:
+    """Guarded GET, pull-parsed as the bytes arrive. The download stops once
+    max_entries entries have been read — the socket closes with the feed
+    unfinished — so huge feeds are ingested newest-first instead of being
+    buffered whole and rejected on size; max_bytes is the hard ceiling that
+    still fails a pathological feed."""
     _refuse_host(url, allow_http=True)  # fail fast on scheme; addresses enforced at connect
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"})
+    req = urllib.request.Request(url, headers={
+        "User-Agent": UA,
+        "Accept": "application/rss+xml, application/atom+xml, application/xml, text/xml, */*"})
     with _opener.open(req, timeout=timeout) as r:
-        return r.read(5_000_000)
+        return _stream_entries(_CountingReader(r, max_bytes), max_entries)
 
 
 def _feed_key(url: str) -> str:
@@ -261,7 +339,8 @@ def _kind(feed: dict) -> str:
 class RssAdapter:
     name = "rss"
 
-    def __init__(self, cfg: dict, fetch: Callable[[str], bytes] = _fetch, now: Callable[[], float] = time.time,
+    def __init__(self, cfg: dict, fetch_entries: Callable[[str, int], list[dict]] = _fetch_entries,
+                 now: Callable[[], float] = time.time,
                  log=None, transcript: Callable[[str], "Transcript | None"] | None = None):
         self.feeds = []
         for f in cfg.get("feeds") or []:
@@ -271,7 +350,8 @@ class RssAdapter:
                 self.feeds.append(f)
         self.max_age = int(cfg.get("max_age_days", 14)) * 86400
         self.max_items = int(cfg.get("max_items", 20))
-        self.fetch = fetch
+        self.max_entries = max(int(cfg.get("max_entries", DEFAULT_MAX_ENTRIES)), 0)
+        self.fetch_entries = fetch_entries
         self.now = now
         self.log = log or (lambda msg: print(msg, file=sys.stderr))
         self.errors: list[tuple[str, str]] = []
@@ -290,7 +370,7 @@ class RssAdapter:
                     raw = Path(str(feed["file"])).read_bytes()
                     entries = parse_feed(raw)
                 else:
-                    entries = parse_feed(self.fetch(feed["url"]))
+                    entries = self.fetch_entries(str(feed["url"]), self.max_entries)
             except Exception as exc:  # noqa: BLE001 one bad feed never stops the run
                 self.errors.append((fid, type(exc).__name__))
                 self.log(f"rss: feed {fid} failed ({type(exc).__name__})")

@@ -1,11 +1,21 @@
+import email.utils
 import socket
+from io import BytesIO
 from types import SimpleNamespace
 
 import pytest
 
 from gaceta.media import MediaError
-from gaceta.sources.rss import RssAdapter, _GuardedRedirect, _feed_key, _fetch, source_identity, parse_feed
+from gaceta.sources.rss import (
+    DEFAULT_MAX_ENTRIES, RssAdapter, _CountingReader, _GuardedRedirect,
+    _feed_key, _fetch_entries, _stream_entries, parse_feed, source_identity,
+)
 from gaceta.transcripts import Transcripts, Transcript, clean_vtt
+
+
+def feed_of(xml: bytes):
+    """Test double for the streaming fetch: pull entries out of fixed bytes."""
+    return lambda url, max_entries: _stream_entries(BytesIO(xml), max_entries)
 
 RSS = b'''<rss xmlns:content="urn:content"><channel><item>
   <title>A &amp; B</title><link>https://example.com/story</link><guid>abc</guid>
@@ -32,7 +42,7 @@ def test_rss_prefers_prose_and_ids_are_stable():
     assert article['body'] == 'First.\n\nMore & better.'
     assert article['title'] == 'A & B'
     adapter = RssAdapter({'feeds': [{'id': 'one', 'url': 'https://example.com/feed'}]},
-                         fetch=lambda _: RSS, now=lambda: NOW)
+                         fetch_entries=feed_of(RSS), now=lambda: NOW)
     item, = adapter.items()
     assert item.verdict == 'noted' and item.id == next(adapter.items()).id
     assert list(adapter.items(since=article['published'] + 1)) == []
@@ -43,15 +53,111 @@ def test_atom_xhtml_content_keeps_prose():
     assert article['body'] == 'Real prose here.\n\nSecond line.'
 
 
+# --------------------------------------------------------------- huge feeds
+
+RDF = b'''<?xml version="1.0"?><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#" xmlns="http://purl.org/rss/1.0/">
+<channel><title>Wire</title></channel>
+<item><title>One</title><link>https://example.com/1</link><description>first</description></item>
+<item><title>Two</title><link>https://example.com/2</link><description>second</description></item>
+</rdf:RDF>'''
+
+
+def test_rss10_items_at_root_level_still_parse():
+    # streaming must match the old whole-document walk: entries count at any depth
+    assert [e["guid"] for e in parse_feed(RDF)] == ["https://example.com/1", "https://example.com/2"]
+
+
+def _oversized_feed(items: int, body_kib: int = 9) -> bytes:
+    """A synthetic oversized podcast feed: `items` entries of ~body_kib KiB each."""
+    body = "Long show notes, paragraph by paragraph. " * (body_kib * 1024 // 42)
+    parts = [b'<rss xmlns:content="urn:content"><channel><title>Backlog</title>']
+    for i in range(items):
+        parts.append(("<item><title>Episode %04d</title>"
+                      "<link>https://example.com/ep/%04d</link><guid>ep-%04d</guid>"
+                      "<pubDate>%s</pubDate><description>%s</description></item>"
+                      % (i, i, i, email.utils.formatdate(NOW - i * 3600, usegmt=True), body)
+                      ).encode())
+    parts.append(b"</channel></rss>")
+    return b"".join(parts)
+
+
+class _TallyIO(BytesIO):
+    """BytesIO that counts what the pull parser actually consumed."""
+
+    def __init__(self, *data):
+        super().__init__(*data)
+        self.consumed = 0
+
+    def read(self, size: int | None = -1) -> bytes:
+        data = super().read(size)
+        self.consumed += len(data)
+        return data
+
+
+def test_huge_feed_is_cut_off_not_rejected():
+    xml = _oversized_feed(600)
+    assert len(xml) > 5_000_000            # the size the old whole-feed cap rejected
+    fp = _TallyIO(xml)
+    entries = _stream_entries(fp, 200)
+    assert len(entries) == 200
+    assert entries[0]["guid"] == "ep-0000" and entries[-1]["guid"] == "ep-0199"
+    assert fp.consumed < len(xml)          # the read stops with the feed unfinished
+
+
+def test_adapter_reads_only_the_entry_cap_and_surfaces_the_newest():
+    xml = _oversized_feed(600)
+    caps = []
+
+    def fetch_entries(url, max_entries):
+        caps.append(max_entries)
+        return _stream_entries(BytesIO(xml), max_entries)
+
+    adapter = RssAdapter({"feeds": [{"id": "bigcast", "url": "https://example.com/feed"}],
+                           "max_entries": 50, "max_items": 10},
+                          fetch_entries=fetch_entries, now=lambda: NOW)
+    items = list(adapter.items())
+    assert caps == [50] and adapter.errors == []
+    assert len(items) == 10                          # max_items still bounds the run
+    assert items[0].title == "Episode 0000"          # newest first, feed order kept
+    assert items[-1].title == "Episode 0009"
+    default = RssAdapter({"feeds": [{"id": "b", "url": "https://example.com/feed"}]},
+                          fetch_entries=fetch_entries, now=lambda: NOW)
+    assert len(list(default.items())) == 20
+    assert caps[-1] == DEFAULT_MAX_ENTRIES == 200   # absent key: sensible default
+
+
+def test_safety_ceiling_still_fails_a_pathological_feed():
+    xml = _oversized_feed(3, body_kib=64)  # ~190 KB in three entries: no entry cap hit
+    assert len(_stream_entries(BytesIO(xml), 200)) == 3
+    with pytest.raises(MediaError, match="safety ceiling"):
+        _stream_entries(_CountingReader(BytesIO(xml), 100_000), 200)
+
+
+def test_ceiling_failure_is_reported_not_fatal():
+    huge = _oversized_feed(600)
+
+    def fetch_entries(url, max_entries):
+        if url.endswith("/broken"):
+            raise MediaError("feed passed the 100000 byte safety ceiling")
+        return _stream_entries(BytesIO(huge), max_entries)
+
+    adapter = RssAdapter({"feeds": [{"id": "backlog", "url": "https://example.com/feed"},
+                                     {"id": "broken", "url": "https://example.com/broken"}]},
+                          fetch_entries=fetch_entries, now=lambda: NOW)
+    items = list(adapter.items())
+    assert adapter.errors == [("broken", "MediaError")]   # reported, never fatal
+    assert len(items) == 20 and items[0].title == "Episode 0000"
+
+
 def test_source_identity_is_the_feed_url_not_the_slug():
     # items is a shared table: the same slug must never alias two different feeds,
     # and two readers pasting the same feed must land on the same rows.
     a, = RssAdapter({'feeds': [{'id': 'one', 'url': 'https://a.example/feed'}]},
-                    fetch=lambda _: RSS, now=lambda: NOW).items()
+                    fetch_entries=feed_of(RSS), now=lambda: NOW).items()
     b, = RssAdapter({'feeds': [{'id': 'one', 'url': 'https://b.example/feed'}]},
-                    fetch=lambda _: RSS, now=lambda: NOW).items()
+                    fetch_entries=feed_of(RSS), now=lambda: NOW).items()
     c, = RssAdapter({'feeds': [{'id': 'totally-different', 'url': 'https://A.EXAMPLE/feed'}]},
-                    fetch=lambda _: RSS, now=lambda: NOW).items()
+                    fetch_entries=feed_of(RSS), now=lambda: NOW).items()
     assert a.id != b.id and a.source.id != b.source.id
     assert (a.id, a.source.id) == (c.id, c.source.id)
     assert _feed_key('https://A.example:443/feed#frag') == 'https://a.example/feed'
@@ -60,7 +166,7 @@ def test_source_identity_is_the_feed_url_not_the_slug():
 def test_youtube_uses_transcript_or_nothing():
     for url in ('https://www.youtube.com/feeds/videos.xml', 'https://example.com/feed'):
         cfg = {'feeds': [{'id': 'clips', 'url': url}]}
-        adapter = RssAdapter(cfg, fetch=lambda _: ATOM, now=lambda: NOW)
+        adapter = RssAdapter(cfg, fetch_entries=feed_of(ATOM), now=lambda: NOW)
         assert list(adapter.items()) == []
         assert adapter.videos_without_transcript == 1
         seen = []
@@ -69,7 +175,7 @@ def test_youtube_uses_transcript_or_nothing():
             seen.append(vid)
             return Transcript('The witness explicitly contradicts the headline.', True)
 
-        item, = RssAdapter(cfg, fetch=lambda _: ATOM, now=lambda: NOW,
+        item, = RssAdapter(cfg, fetch_entries=feed_of(ATOM), now=lambda: NOW,
                            transcript=transcript).items()
         assert seen == ['Abcde12345_']
         assert item.source.kind == 'youtube' and item.body == transcript(seen[0]).text
@@ -82,10 +188,10 @@ def test_unproven_transcript_gets_a_private_source_variant():
         return Transcript('Cookies fetched me a video that may not be public.', False)
 
     item, = RssAdapter({'feeds': [{'id': 'clips', 'url': 'https://www.youtube.com/feeds/videos.xml'}]},
-                       fetch=lambda _: ATOM, now=lambda: NOW, transcript=transcript).items()
+                       fetch_entries=feed_of(ATOM), now=lambda: NOW, transcript=transcript).items()
     assert item.source.content_public is False and item.source.id.endswith(':u')
     public_again, = RssAdapter({'feeds': [{'id': 'clips', 'url': 'https://www.youtube.com/feeds/videos.xml'}]},
-                               fetch=lambda _: ATOM, now=lambda: NOW,
+                               fetch_entries=feed_of(ATOM), now=lambda: NOW,
                                transcript=lambda v: Transcript('Refetched anonymously later.', True)).items()
     # Same item row (identity independent of provenance), now on the public source.
     assert public_again.id == item.id and public_again.source.content_public is True
@@ -100,13 +206,13 @@ def _resolver(ip):
 def test_fetch_refuses_non_http_schemes(monkeypatch):
     monkeypatch.setattr('gaceta.media.socket.getaddrinfo', _resolver('93.184.216.34'))
     with pytest.raises(MediaError, match='scheme'):
-        _fetch('file:///etc/passwd')
+        _fetch_entries('file:///etc/passwd')
 
 
 def test_fetch_refuses_private_hosts(monkeypatch):
     monkeypatch.setattr('gaceta.media.socket.getaddrinfo', _resolver('10.1.2.3'))
     with pytest.raises(MediaError, match='non-global'):
-        _fetch('http://internal.example/feed')
+        _fetch_entries('http://internal.example/feed')
 
 
 def test_redirect_guard_refuses_file_and_internal_targets(monkeypatch):
@@ -171,9 +277,9 @@ def test_unproven_fetch_never_overwrites_public_shared_item(tmp_path):
     conn = gdb.connect(tmp_path / 'g.db')
     gdb.init(conn)
     feed = {'feeds': [{'id': 'clips', 'url': 'https://www.youtube.com/feeds/videos.xml'}]}
-    pub = RssAdapter(feed, fetch=lambda _: ATOM, now=lambda: NOW,
+    pub = RssAdapter(feed, fetch_entries=feed_of(ATOM), now=lambda: NOW,
                      transcript=lambda v: Transcript('Anonymous public transcript words.', True))
-    unpr = RssAdapter(feed, fetch=lambda _: ATOM, now=lambda: NOW,
+    unpr = RssAdapter(feed, fetch_entries=feed_of(ATOM), now=lambda: NOW,
                       transcript=lambda v: Transcript('Cookie-fetched secret transcript.', False))
     ingest_mod.ingest(conn, pub, {'id': 'a', 'name': 'A', 'langs': 'es'})
     iid, = [r[0] for r in conn.execute('SELECT id FROM items')]
